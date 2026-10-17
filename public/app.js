@@ -106,7 +106,7 @@ function renderAdapters() {
             <button type="button" class="btn btn-xs ${isSelected ? 'btn-pause-device' : 'btn-resume-device'}" onclick="toggleAdapter('${iface.address}')" title="${isSelected ? 'Pause adapter from downloads' : 'Resume adapter in bonding'}">
               ${isSelected ? '⏸ Pause' : '▶ Resume'}
             </button>
-            <button type="button" class="btn btn-xs btn-glass btn-icon-test" onclick="testSingleAdapterSpeed('${iface.address}')" ${!iface.online ? 'disabled title="Adapter is offline"' : 'title="Benchmark download speed"'}">
+            <button type="button" class="btn btn-xs btn-glass btn-icon-test" onclick="testSingleAdapterSpeed('${iface.address}')" title="Test adapter speed (5s)">
               ⚡ Test
             </button>
             <label class="switch-wrap switch-sm" title="${isSelected ? 'Channel bonding enabled' : 'Paused'}">
@@ -217,6 +217,40 @@ function initSSE() {
           const speeds = {};
           speeds[prog.localAddress] = (prog.currentMbps * 1024 * 1024) / 8;
           window.energyFlowVisualizer.updateData(speeds, speeds[prog.localAddress]);
+        }
+      }
+    } catch {}
+  });
+
+  es.addEventListener('speedtest_complete', () => {
+    try {
+      // Immediately reset visualizer and adapter live speed badges once test ends
+      updateGlobalSpeed();
+      if (networkInterfaces) {
+        networkInterfaces.forEach(iface => {
+          const safeId = iface.address.replace(/[^a-zA-Z0-9]/g, '_');
+          const liveSpeedEl = document.getElementById(`speed-${safeId}`);
+          if (liveSpeedEl && activeDownloads.size === 0) {
+            const isSelected = selectedInterfaces.has(iface.address);
+            liveSpeedEl.textContent = isSelected ? '0 B/s' : 'PAUSED';
+          }
+        });
+      }
+    } catch {}
+  });
+
+  es.addEventListener('interface_status_update', (e) => {
+    try {
+      const data = JSON.parse(e.data);
+      if (data.address) {
+        const iface = networkInterfaces.find(i => i.address === data.address);
+        if (iface) {
+          iface.online = !!data.online;
+          if (iface.online && !selectedInterfaces.has(iface.address)) {
+            selectedInterfaces.add(iface.address);
+          }
+          renderAdapters();
+          updateHeaderHud();
         }
       }
     } catch {}
@@ -747,10 +781,10 @@ window.testSingleAdapterSpeed = async function(address) {
   if (badge) {
     badge.style.display = 'inline-block';
     badge.className = 'speedtest-result-badge testing';
-    badge.textContent = 'Testing (10s sustained)...';
+    badge.textContent = 'Testing (5s)...';
   }
 
-  // Energize visualizer stream
+  // Energize visualizer stream during active benchmark
   if (window.energyFlowVisualizer) {
     const speeds = {};
     speeds[address] = 5 * 1024 * 1024;
@@ -761,7 +795,7 @@ window.testSingleAdapterSpeed = async function(address) {
     const res = await fetch('/api/speedtest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address, duration: 10 })
+      body: JSON.stringify({ address, duration: 5 })
     });
     const data = await res.json();
     const result = data.result;
@@ -769,7 +803,7 @@ window.testSingleAdapterSpeed = async function(address) {
     if (badge) {
       badge.className = 'speedtest-result-badge';
       if (result && result.success) {
-        badge.textContent = `Ping: ${result.ping}ms | ${result.mbps} Mbps (10s avg)`;
+        badge.textContent = `Ping: ${result.ping}ms | ${result.mbps} Mbps (5s avg)`;
       } else {
         badge.textContent = `Error: ${(result && result.error) || 'Failed'}`;
         badge.style.color = '#ff3366';
@@ -782,9 +816,7 @@ window.testSingleAdapterSpeed = async function(address) {
     }
   } finally {
     if (card) card.classList.remove('testing');
-    if (window.energyFlowVisualizer) {
-      window.energyFlowVisualizer.updateData({}, 0);
-    }
+    updateGlobalSpeed();
   }
 };
 
@@ -795,7 +827,7 @@ window.testAllAdaptersSpeed = async function() {
   const mbpsEl = document.getElementById('speedTestBannerMbps');
 
   if (banner) banner.style.display = 'block';
-  if (title) title.textContent = 'Benchmarking All Active Adapters (10s sustained)...';
+  if (title) title.textContent = 'Benchmarking All Active Adapters (5s)...';
   if (sub) sub.textContent = 'Measuring CDN throughput and latency across bonded interfaces';
   if (mbpsEl) mbpsEl.textContent = 'Testing...';
 
@@ -809,7 +841,7 @@ window.testAllAdaptersSpeed = async function() {
     if (badge) {
       badge.style.display = 'inline-block';
       badge.className = 'speedtest-result-badge testing';
-      badge.textContent = 'Testing (10s)...';
+      badge.textContent = 'Testing (5s)...';
     }
     simSpeeds[i.address] = 4 * 1024 * 1024;
   });
@@ -822,7 +854,7 @@ window.testAllAdaptersSpeed = async function() {
     const res = await fetch('/api/speedtest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address: 'all', duration: 10 })
+      body: JSON.stringify({ address: 'all', duration: 5 })
     });
     const data = await res.json();
 
@@ -852,9 +884,7 @@ window.testAllAdaptersSpeed = async function() {
       const card = document.getElementById(`adapter-${safeId}`);
       if (card) card.classList.remove('testing');
     });
-    if (window.energyFlowVisualizer) {
-      window.energyFlowVisualizer.updateData({}, 0);
-    }
+    updateGlobalSpeed();
   }
 };
 

@@ -282,28 +282,33 @@ export async function handleRequest(req, res) {
     return;
   }
 
-  // Network Speed Tester (Individual or All Adapters - 10s sustained)
+  // Network Speed Tester (Individual or All Adapters - 5s test, only on user demand)
   if (url.pathname === '/api/speedtest' && req.method === 'POST') {
     try {
       const body = await parseJsonBody(req);
       const targetAddress = body.address; // 'all', specific IP, or array
-      const duration = parseInt(body.duration, 10) || 10;
-      const ifaces = await getNetworkInterfaces(true);
-      const activeIfaces = ifaces.filter(i => i.online);
+      const duration = Math.min(5, parseInt(body.duration, 10) || 5);
+      const ifaces = await getNetworkInterfaces(false);
+      // Filter candidates: prefer online, or fallback to all detected physical interfaces
+      let candidateIfaces = ifaces.filter(i => i.online);
+      if (candidateIfaces.length === 0) candidateIfaces = ifaces;
 
       if (targetAddress && targetAddress !== 'all') {
-        // Individual adapter speed test (10s)
+        // Individual adapter speed test (5s)
         broadcastSSE('speedtest_start', { address: targetAddress, duration });
         const result = await runAdapterSpeedTest(targetAddress, (prog) => {
           broadcastSSE('speedtest_progress', prog);
         }, duration);
+        if (result && result.success && result.bytes > 0) {
+          broadcastSSE('interface_status_update', { address: targetAddress, online: true });
+        }
         broadcastSSE('speedtest_complete', result);
         return sendJson(res, 200, { result });
       } else {
-        // Test all active interfaces concurrently (10s)
-        broadcastSSE('speedtest_start', { address: 'all', count: activeIfaces.length, duration });
+        // Test all candidate interfaces concurrently (5s)
+        broadcastSSE('speedtest_start', { address: 'all', count: candidateIfaces.length, duration });
         const results = await Promise.all(
-          activeIfaces.map(iface => runAdapterSpeedTest(iface.address, (prog) => {
+          candidateIfaces.map(iface => runAdapterSpeedTest(iface.address, (prog) => {
             broadcastSSE('speedtest_progress', prog);
           }, duration))
         );
@@ -316,6 +321,9 @@ export async function handleRequest(req, res) {
             totalBytes += r.bytes;
             totalDuration = Math.max(totalDuration, r.duration);
             totalMbps += r.mbps;
+            if (r.localAddress && r.bytes > 0) {
+              broadcastSSE('interface_status_update', { address: r.localAddress, online: true });
+            }
           }
         });
 
@@ -323,7 +331,7 @@ export async function handleRequest(req, res) {
           adapters: results,
           totalMbps: parseFloat(totalMbps.toFixed(2)),
           totalSpeedFormatted: `${(totalBytes / (Math.max(0.1, totalDuration) * 1024 * 1024)).toFixed(2)} MB/s (${totalMbps.toFixed(2)} Mbps)`,
-          activeCount: activeIfaces.length
+          activeCount: candidateIfaces.length
         };
 
         broadcastSSE('speedtest_complete', aggregateResult);

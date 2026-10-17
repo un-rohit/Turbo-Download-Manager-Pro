@@ -7,20 +7,21 @@ const CDN_URL = 'https://speed.cloudflare.com/__down?bytes=25000000'; // 25 MB c
 const PING_URL = 'https://speed.cloudflare.com/__down?bytes=0';
 
 /**
- * Runs a sustained network speed test for at least 10 seconds on a specific network adapter.
+ * Runs a network speed test for exactly 5 seconds on a specific network adapter.
  * @param {string|null} localAddress - IPv4 address of the adapter to test, or null for default.
  * @param {Function} [onProgress] - Callback for real-time progress updates.
- * @param {number} [durationSec=10] - Test duration in seconds (default: 10s).
+ * @param {number} [durationSec=5] - Test duration in seconds (default: 5s).
  * @returns {Promise<{ ping: number, bytes: number, duration: number, mbps: number, speedFormatted: string, success: boolean, error?: string }>}
  */
-export function runAdapterSpeedTest(localAddress, onProgress, durationSec = 10) {
+export function runAdapterSpeedTest(localAddress, onProgress, durationSec = 5) {
   return new Promise((resolve) => {
-    const targetDurationMs = Math.max(5000, durationSec * 1000);
+    const targetDurationMs = Math.max(3000, durationSec * 1000);
     const startTime = Date.now();
     let totalBytes = 0;
     let ping = 0;
     let isFinished = false;
     let activeReq = null;
+    let activeRes = null;
     let progressTimer = null;
 
     // Track rolling window speed
@@ -32,6 +33,9 @@ export function runAdapterSpeedTest(localAddress, onProgress, durationSec = 10) 
       if (isFinished) return;
       isFinished = true;
       if (progressTimer) clearInterval(progressTimer);
+      if (activeRes) {
+        try { activeRes.destroy(); } catch {}
+      }
       if (activeReq) {
         try { activeReq.destroy(); } catch {}
       }
@@ -155,6 +159,7 @@ export function runAdapterSpeedTest(localAddress, onProgress, durationSec = 10) 
         }
 
         activeReq = https.request(reqOptions, (res) => {
+          activeRes = res;
           res.on('data', (chunk) => {
             totalBytes += chunk.length;
             if ((Date.now() - startTime) >= targetDurationMs) {

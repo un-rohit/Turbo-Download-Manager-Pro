@@ -29,6 +29,7 @@ settings.json
 # Logs & Runtime Diagnostics
 *.log
 logs/
+scratch/
 
 # Environment Variables & Secrets
 .env
