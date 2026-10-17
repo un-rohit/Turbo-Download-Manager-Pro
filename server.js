@@ -195,7 +195,7 @@ function parseJsonBody(req) {
   });
 }
 
-const server = http.createServer(async (req, res) => {
+export async function handleRequest(req, res) {
   // CORS
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
@@ -208,6 +208,23 @@ const server = http.createServer(async (req, res) => {
   }
 
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+
+  // In Vercel / Cloud serverless environment, default root / serves the public landing page!
+  if (process.env.VERCEL) {
+    if (url.pathname === '/' || url.pathname === '/landing' || url.pathname === '/landing/') {
+      const landingFile = path.join(LANDING_DIR, 'index.html');
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return fs.createReadStream(landingFile).pipe(res);
+    }
+    const cleanPath = url.pathname.replace(/^\/landing\//, '').replace(/^\//, '');
+    const checkLandingAsset = path.join(LANDING_DIR, cleanPath);
+    if (fs.existsSync(checkLandingAsset) && fs.statSync(checkLandingAsset).isFile()) {
+      const ext = path.extname(checkLandingAsset).toLowerCase();
+      const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+      res.writeHead(200, { 'Content-Type': contentType });
+      return fs.createReadStream(checkLandingAsset).pipe(res);
+    }
+  }
 
   // SSE stream
   if (url.pathname === '/api/events') {
@@ -496,16 +513,24 @@ const server = http.createServer(async (req, res) => {
       res.end(content);
     });
   });
-});
+}
 
-server.on('error', (err) => {
-  if (err.code === 'EADDRINUSE') {
-    console.warn(`[Turbo Download Manager] Port ${PORT} already bound. Reusing existing instance.`);
-  } else {
-    console.error('[Turbo Download Manager] Server error:', err);
-  }
-});
+const server = http.createServer(handleRequest);
 
-server.listen(PORT, '127.0.0.1', () => {
-  console.log(`[Turbo Download Manager] Server running at http://127.0.0.1:${PORT}`);
-});
+export default async function handler(req, res) {
+  return handleRequest(req, res);
+}
+
+if (!process.env.VERCEL) {
+  server.on('error', (err) => {
+    if (err.code === 'EADDRINUSE') {
+      console.warn(`[Turbo Download Manager] Port ${PORT} already bound. Reusing existing instance.`);
+    } else {
+      console.error('[Turbo Download Manager] Server error:', err);
+    }
+  });
+
+  server.listen(PORT, '127.0.0.1', () => {
+    console.log(`[Turbo Download Manager] Server running at http://127.0.0.1:${PORT}`);
+  });
+}

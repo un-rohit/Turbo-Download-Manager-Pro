@@ -1,12 +1,5 @@
-# Exclude backend server and desktop files from Vercel deployment
-server.js
-engine/
-bin/
+# Local runtime state and binary builds
 dist/
-public/
-electron-main.cjs
-sea-entry.cjs
-launch.bat
-settings.json
-downloads-history.json
 downloads/
+downloads-history.json
+settings.json
