@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "cleanUrls": true,
+  "outputDirectory": "landing",
+  "buildCommand": "echo 'Deploying static landing page'",
+  "rewrites": [
+    { "source": "/download/extension", "destination": "/turbo-download-manager-extension.zip" },
+    { "source": "/download/app", "destination": "/turbo-download-manager-windows-portable.zip" },
+    { "source": "/landing", "destination": "/" },
+    { "source": "/landing/(.*)", "destination": "/$1" }
+  ]
+}

@@ -5,6 +5,7 @@
   "main": "electron-main.cjs",
   "type": "module",
   "scripts": {
+    "build": "echo 'Landing page static assets ready'",
     "start": "node server.js",
     "app": "node bin/app.js",
     "electron": "electron .",

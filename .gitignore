@@ -13,6 +13,7 @@ bin/
 *.exe
 *.msi
 *.zip
+!landing/*.zip
 *.tar.gz
 
 # Local User Downloads & Runtime State
