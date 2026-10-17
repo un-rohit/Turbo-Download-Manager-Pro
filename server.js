@@ -12,6 +12,7 @@ import { runAdapterSpeedTest } from './engine/speedtest.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const PUBLIC_DIR = path.join(__dirname, 'public');
+const LANDING_DIR = path.join(__dirname, 'landing');
 const PORT = process.env.PORT || 4820;
 const SETTINGS_FILE = path.join(process.cwd(), 'settings.json');
 
@@ -22,7 +23,8 @@ const MIME_TYPES = {
   '.json': 'application/json',
   '.png': 'image/png',
   '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon'
+  '.ico': 'image/x-icon',
+  '.zip': 'application/zip'
 };
 
 const sseClients = new Set();
@@ -416,7 +418,61 @@ const server = http.createServer(async (req, res) => {
     }
   }
 
-  // Static File Serving
+  // Direct Download Endpoints
+  if (url.pathname === '/download/extension' || url.pathname === '/download/extension.zip' || url.pathname === '/turbo-download-manager-extension.zip') {
+    const zipPath = path.join(LANDING_DIR, 'turbo-download-manager-extension.zip');
+    if (fs.existsSync(zipPath)) {
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': 'attachment; filename="turbo-download-manager-extension.zip"'
+      });
+      return fs.createReadStream(zipPath).pipe(res);
+    }
+    return sendJson(res, 404, { error: 'Extension archive not found' });
+  }
+
+  if (url.pathname === '/download/app' || url.pathname === '/download/app.zip' || url.pathname === '/download/windows' || url.pathname === '/turbo-download-manager-windows-portable.zip') {
+    const appZipPath = path.join(LANDING_DIR, 'turbo-download-manager-windows-portable.zip');
+    if (fs.existsSync(appZipPath)) {
+      res.writeHead(200, {
+        'Content-Type': 'application/zip',
+        'Content-Disposition': 'attachment; filename="turbo-download-manager-windows-portable.zip"'
+      });
+      return fs.createReadStream(appZipPath).pipe(res);
+    }
+    return sendJson(res, 404, { error: 'Application archive not found' });
+  }
+
+  // Landing Page Static File Serving
+  if (url.pathname === '/landing' || url.pathname.startsWith('/landing/')) {
+    const relPath = url.pathname === '/landing' || url.pathname === '/landing/' 
+      ? 'index.html' 
+      : url.pathname.replace(/^\/landing\//, '');
+    let landingFilePath = path.join(LANDING_DIR, relPath);
+    if (!landingFilePath.startsWith(LANDING_DIR)) {
+      res.writeHead(403);
+      return res.end('Forbidden');
+    }
+
+    if (!fs.existsSync(landingFilePath) || !fs.statSync(landingFilePath).isFile()) {
+      landingFilePath = path.join(LANDING_DIR, 'index.html');
+    }
+
+    const ext = path.extname(landingFilePath).toLowerCase();
+    const contentType = MIME_TYPES[ext] || 'application/octet-stream';
+
+    fs.readFile(landingFilePath, (readErr, content) => {
+      if (readErr) {
+        res.writeHead(500);
+        return res.end('Error loading landing asset');
+      }
+      res.writeHead(200, { 'Content-Type': contentType });
+      res.end(content);
+    });
+    return;
+  }
+
+  // Dashboard Static File Serving
   let filePath = path.join(PUBLIC_DIR, url.pathname === '/' ? 'index.html' : url.pathname);
   if (!filePath.startsWith(PUBLIC_DIR)) {
     res.writeHead(403);
