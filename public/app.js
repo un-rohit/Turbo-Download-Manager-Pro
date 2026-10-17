@@ -447,7 +447,7 @@ function renderHistory() {
         </td>
         <td class="mono">${dateStr}</td>
         <td>
-          <button class="btn btn-sm btn-glass" onclick="openOutputFolder('${item.outputPath ? item.outputPath.replace(/\\/g, '\\\\') : ''}')">
+          <button type="button" class="btn btn-sm btn-glass" onclick="openHistoryItemFolder('${item.id}')" title="Open folder and select this file in Windows Explorer">
             Show in Folder
           </button>
         </td>
@@ -456,13 +456,30 @@ function renderHistory() {
   }).join('');
 }
 
-window.openOutputFolder = async function(filePath) {
-  const dir = filePath ? filePath.substring(0, filePath.lastIndexOf('\\')) : null;
-  await fetch('/api/open-folder', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ dir })
-  });
+window.openHistoryItemFolder = async function(id) {
+  const item = downloadHistory.find(h => h.id === id);
+  const targetPath = item ? (item.outputPath || item.filename) : null;
+  try {
+    await fetch('/api/open-folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: targetPath })
+    });
+  } catch (err) {
+    console.error('Failed to open folder:', err);
+  }
+};
+
+window.openOutputFolder = async function(customPath) {
+  try {
+    await fetch('/api/open-folder', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ path: customPath || null })
+    });
+  } catch (err) {
+    console.error('Failed to open downloads folder:', err);
+  }
 };
 
 // 6. Modal & Probe Handler

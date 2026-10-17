@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { exec } from 'node:child_process';
+import { exec, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { getNetworkInterfaces } from './engine/network.js';
 import { probeUrl } from './engine/downloader.js';
@@ -181,17 +181,18 @@ function sendJson(res, statusCode, data) {
 }
 
 function parseJsonBody(req) {
-  return new Promise((resolve, reject) => {
+  return new Promise((resolve) => {
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', () => {
       try {
-        resolve(body ? JSON.parse(body) : {});
+        const trimmed = (body || '').trim();
+        resolve(trimmed ? JSON.parse(trimmed) : {});
       } catch (err) {
-        reject(err);
+        resolve({});
       }
     });
-    req.on('error', reject);
+    req.on('error', () => resolve({}));
   });
 }
 
@@ -451,10 +452,34 @@ export async function handleRequest(req, res) {
     try {
       const body = await parseJsonBody(req);
       const settings = getSettings();
-      const targetDir = body.dir || settings.downloadDir;
-      exec(`explorer.exe "${targetDir}"`);
-      return sendJson(res, 200, { ok: true });
+      let rawPath = body.path || body.dir || settings.downloadDir || path.join(os.homedir(), 'Downloads');
+
+      // Normalize path for Windows
+      const targetPath = path.resolve(rawPath);
+
+      let args = [];
+      if (fs.existsSync(targetPath)) {
+        const stat = fs.statSync(targetPath);
+        if (stat.isFile()) {
+          args = [`/select,${targetPath}`];
+        } else {
+          args = [targetPath];
+        }
+      } else {
+        // If file does not exist, check or create the parent directory
+        const parentDir = path.extname(targetPath) ? path.dirname(targetPath) : targetPath;
+        if (!fs.existsSync(parentDir)) {
+          fs.mkdirSync(parentDir, { recursive: true });
+        }
+        args = [parentDir];
+      }
+
+      const child = spawn('explorer.exe', args, { detached: true, stdio: 'ignore' });
+      child.unref();
+
+      return sendJson(res, 200, { ok: true, target: targetPath, args });
     } catch (err) {
+      console.error('[Turbo Download Manager] Error opening folder:', err);
       return sendJson(res, 500, { error: err.message });
     }
   }
