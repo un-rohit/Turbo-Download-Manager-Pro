@@ -1,12 +1,31 @@
 {
-  "$schema": "https://openapi.vercel.sh/vercel.json",
-  "cleanUrls": true,
-  "outputDirectory": "landing",
-  "buildCommand": "echo 'Deploying static landing page'",
-  "rewrites": [
-    { "source": "/download/extension", "destination": "/turbo-download-manager-extension.zip" },
-    { "source": "/download/app", "destination": "/turbo-download-manager-windows-portable.zip" },
-    { "source": "/landing", "destination": "/" },
-    { "source": "/landing/(.*)", "destination": "/$1" }
+  "version": 2,
+  "builds": [
+    {
+      "src": "landing/**",
+      "use": "@vercel/static"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/download/extension",
+      "dest": "/landing/turbo-download-manager-extension.zip"
+    },
+    {
+      "src": "/download/app",
+      "dest": "/landing/turbo-download-manager-windows-portable.zip"
+    },
+    {
+      "src": "/turbo-download-manager-extension.zip",
+      "dest": "/landing/turbo-download-manager-extension.zip"
+    },
+    {
+      "src": "/turbo-download-manager-windows-portable.zip",
+      "dest": "/landing/turbo-download-manager-windows-portable.zip"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/landing/$1"
+    }
   ]
 }
