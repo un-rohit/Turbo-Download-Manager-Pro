@@ -440,12 +440,12 @@
         <div class="download-card command-card">
           <div class="card-icon">⌨️</div>
           <h3>Install from PowerShell</h3>
-          <p class="card-desc">Download the official v1.0.0 installer, then run it. Review the release notes before installing.</p>
+          <p class="card-desc">Run one command in PowerShell to download and launch the official Windows installer.</p>
           <div class="install-command">
-            <code id="powershellInstallCommand">$installer = Join-Path $env:TEMP 'Turbo-Download-Manager-Setup.exe'; Invoke-WebRequest 'https://github.com/un-rohit/Turbo-Download-Manager-Pro/releases/download/v1.0.0/Turbo-Download-Manager-Setup.exe' -OutFile $installer; Start-Process $installer</code>
+            <code id="powershellInstallCommand">irm https://raw.githubusercontent.com/un-rohit/Turbo-Download-Manager-Pro/main/landing/install.ps1 | iex</code>
             <button class="copy-command" type="button" data-copy-target="powershellInstallCommand" aria-label="Copy PowerShell install command">Copy</button>
           </div>
-          <p class="command-footnote">Downloads and launches the signed release asset from GitHub.</p>
+          <p class="command-footnote">Downloads and launches the v1.0.0 installer from GitHub Releases.</p>
         </div>
 
         <div class="download-card command-card">
