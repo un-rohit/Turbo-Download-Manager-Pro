@@ -1,5 +1,21 @@
 // =========================================================
 // Turbo Download Manager Pro — Landing Page Interactive Engine
+
+document.querySelectorAll('.copy-command[data-copy-target]:not(:disabled)').forEach((button) => {
+  button.addEventListener('click', async () => {
+    const target = document.getElementById(button.dataset.copyTarget);
+    if (!target) return;
+
+    try {
+      await navigator.clipboard.writeText(target.textContent.trim());
+      button.textContent = 'Copied!';
+      window.setTimeout(() => { button.textContent = 'Copy'; }, 1600);
+    } catch {
+      button.textContent = 'Copy failed';
+      window.setTimeout(() => { button.textContent = 'Copy'; }, 1600);
+    }
+  });
+});
 // =========================================================
 
 document.addEventListener('DOMContentLoaded', () => {

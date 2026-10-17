@@ -60,7 +60,7 @@
     <div class="hero-container">
       <div class="hero-badge">
         <span class="pulse-indicator"></span>
-        <span>NEXT-GEN HARDWARE CHANNEL BONDING</span>
+        <span>VERSION 1.0.0 IS NOW AVAILABLE</span>
       </div>
 
       <h1 class="hero-headline">
@@ -403,7 +403,7 @@
       <div class="section-heading text-center">
         <span class="section-pill">DOWNLOAD CENTER</span>
         <h2>Get Turbo Download Manager Pro Now</h2>
-        <p class="section-sub">100% Free, Open Source, and Ad-Free. No trackers, no speed caps.</p>
+        <p class="section-sub">Version 1.0.0 is out now. Free, open source, and ad-free with no trackers or speed caps.</p>
       </div>
 
       <div class="downloads-cards-grid">
@@ -412,6 +412,7 @@
           <div class="popular-ribbon">RECOMMENDED</div>
           <div class="card-icon">⚡</div>
           <h3>Windows Desktop App</h3>
+          <span class="release-version">LATEST RELEASE <strong>v1.0.0</strong></span>
           <p class="card-desc">Full desktop hardware channel bonding accelerator with system tray integration and live visualizer.</p>
 
           <ul class="card-specs">
@@ -426,16 +427,37 @@
             <a href="https://github.com/un-rohit/Turbo-Download-Manager-Pro/releases/download/v1.0.0/Turbo-Download-Manager-Setup.exe" class="btn btn-primary btn-block">
               ⚡ Download Installer (.exe)
             </a>
-            <a href="turbo-download-manager-windows-portable.zip" download class="btn btn-glass btn-block" style="margin-top: 10px;">
-              📥 Download Windows Portable (.zip)
-            </a>
             <a href="https://github.com/un-rohit/Turbo-Download-Manager-Pro/releases" target="_blank" class="btn btn-glass btn-block" style="margin-top: 10px;">
-              🔗 GitHub Releases (.exe & .zip)
+              🔗 View v1.0.0 Release Notes & Assets
             </a>
             <div class="quick-code-note">
-              Single-file installer with desktop shortcuts and auto-launch
+              Windows 10/11 · 64-bit · Official GitHub release
             </div>
           </div>
+        </div>
+
+        <!-- Command Line Install Options -->
+        <div class="download-card command-card">
+          <div class="card-icon">⌨️</div>
+          <h3>Install from PowerShell</h3>
+          <p class="card-desc">Download the official v1.0.0 installer, then run it. Review the release notes before installing.</p>
+          <div class="install-command">
+            <code id="powershellInstallCommand">$installer = Join-Path $env:TEMP 'Turbo-Download-Manager-Setup.exe'; Invoke-WebRequest 'https://github.com/un-rohit/Turbo-Download-Manager-Pro/releases/download/v1.0.0/Turbo-Download-Manager-Setup.exe' -OutFile $installer; Start-Process $installer</code>
+            <button class="copy-command" type="button" data-copy-target="powershellInstallCommand" aria-label="Copy PowerShell install command">Copy</button>
+          </div>
+          <p class="command-footnote">Downloads and launches the signed release asset from GitHub.</p>
+        </div>
+
+        <div class="download-card command-card">
+          <div class="card-icon">📦</div>
+          <h3>Install with WinGet</h3>
+          <p class="card-desc">WinGet installation will be available after the package is published to the community repository.</p>
+          <div class="install-command is-unavailable">
+            <code>winget install --id UnRohit.TurboDownloadManagerPro</code>
+            <button class="copy-command" type="button" data-copy-target="wingetInstallCommand" disabled aria-label="WinGet package not yet available">Unavailable</button>
+          </div>
+          <code id="wingetInstallCommand" class="sr-only">winget install --id UnRohit.TurboDownloadManagerPro</code>
+          <p class="command-footnote">Package ID shown for reference; it is not installable yet.</p>
         </div>
 
         <!-- Chrome / Edge Extension Card -->
@@ -512,7 +534,7 @@
         </div>
         <div class="footer-col">
           <h5>Resources</h5>
-          <a href="turbo-download-manager-windows-portable.zip" download>Windows Portable (.zip)</a>
+          <a href="https://github.com/un-rohit/Turbo-Download-Manager-Pro/releases/tag/v1.0.0" target="_blank" rel="noopener">v1.0.0 Release</a>
           <a href="turbo-download-manager-extension.zip" download>Extension ZIP</a>
           <a href="https://github.com/un-rohit/Turbo-Download-Manager-Pro" target="_blank">GitHub Repository</a>
           <a href="https://github.com/un-rohit/Turbo-Download-Manager-Pro/releases" target="_blank">Releases</a>
