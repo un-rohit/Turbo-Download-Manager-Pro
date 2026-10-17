@@ -131,7 +131,10 @@ export class MultiInterfaceDownload {
     this.endTime = null;
     this.error = null;
 
-    // Per-interface telemetry: address -> { bytesDownloaded, currentSpeed, label, type }
+    this.pausedInterfaces = new Set();
+    this.activeStreams = new Map(); // segId -> { stream, adapterAddress }
+
+    // Per-interface telemetry: address -> { bytesDownloaded, currentSpeed, label, type, paused }
     this.interfaceStats = {};
     this.interfaces.forEach((iface) => {
       this.interfaceStats[iface.address] = {
@@ -141,7 +144,8 @@ export class MultiInterfaceDownload {
         type: iface.type,
         bytesDownloaded: 0,
         currentSpeed: 0,
-        activeStreams: 0
+        activeStreams: 0,
+        paused: false
       };
     });
 
@@ -166,6 +170,109 @@ export class MultiInterfaceDownload {
     }
   }
 
+  pauseInterface(address) {
+    this.pausedInterfaces.add(address);
+    if (this.interfaceStats[address]) {
+      this.interfaceStats[address].paused = true;
+      this.interfaceStats[address].currentSpeed = 0;
+      this.interfaceStats[address].activeStreams = 0;
+    }
+
+    // Abort active streams on this interface
+    for (const [segId, entry] of this.activeStreams.entries()) {
+      if (entry.adapterAddress === address) {
+        try {
+          if (entry.stream) entry.stream.destroy();
+        } catch {}
+        this.activeStreams.delete(segId);
+      }
+    }
+
+    // Free active segments belonging to this interface so others can pick them up
+    for (const seg of this.segments) {
+      if (seg.active && !seg.done && seg.interfaceAddress === address) {
+        seg.active = false;
+      }
+    }
+
+    this.notify();
+  }
+
+  resumeInterface(address) {
+    this.pausedInterfaces.delete(address);
+    if (this.interfaceStats[address]) {
+      this.interfaceStats[address].paused = false;
+    }
+    this.notify();
+  }
+
+  isInterfacePaused(address) {
+    return this.pausedInterfaces.has(address);
+  }
+
+  isAllDone() {
+    if (this.contentLength > 0 && this.downloadedBytes >= this.contentLength) {
+      return true;
+    }
+    if (this.segments.length > 0 && this.segments.every(s => s.done || s.currentOffset > s.end)) {
+      return true;
+    }
+    return false;
+  }
+
+  findOrStealWork(workerAddress) {
+    // 1. Look for any pending segment that is not done and not active
+    for (const seg of this.segments) {
+      if (!seg.done && !seg.active && seg.currentOffset <= seg.end) {
+        seg.interfaceAddress = workerAddress;
+        return seg;
+      }
+    }
+
+    // 2. Dynamic Work Stealing:
+    // If no free segments exist, find the active in-flight segment with the most remaining bytes!
+    const MIN_STEAL_BYTES = 2 * 1024 * 1024; // 2 MB minimum to justify Range split
+    let candidate = null;
+    let maxRemaining = 0;
+
+    for (const seg of this.segments) {
+      if (seg.active && !seg.done) {
+        const remaining = seg.end - seg.currentOffset + 1;
+        if (remaining > maxRemaining && remaining >= MIN_STEAL_BYTES) {
+          maxRemaining = remaining;
+          candidate = seg;
+        }
+      }
+    }
+
+    if (candidate) {
+      const remaining = candidate.end - candidate.currentOffset + 1;
+      const half = Math.floor(remaining / 2);
+      const oldEnd = candidate.end;
+      const splitPoint = candidate.end - half;
+
+      // Shorten the candidate's boundary
+      candidate.end = splitPoint;
+
+      // Create the new stolen segment with the second half
+      const newSeg = {
+        id: this.segments.length + 1,
+        interfaceAddress: workerAddress,
+        start: splitPoint + 1,
+        end: oldEnd,
+        currentOffset: splitPoint + 1,
+        downloaded: 0,
+        active: false,
+        done: false
+      };
+
+      this.segments.push(newSeg);
+      return newSeg;
+    }
+
+    return null;
+  }
+
   getSnapshot() {
     return {
       id: this.id,
@@ -178,7 +285,10 @@ export class MultiInterfaceDownload {
       progress: this.contentLength > 0 ? Math.min(1, (this.downloadedBytes / this.contentLength)) : 0,
       currentSpeed: this.currentSpeed,
       etaSeconds: this.currentSpeed > 0 ? Math.max(0, Math.round((this.contentLength - this.downloadedBytes) / this.currentSpeed)) : 0,
-      interfaces: Object.values(this.interfaceStats),
+      interfaces: Object.values(this.interfaceStats).map(i => ({
+        ...i,
+        paused: this.pausedInterfaces.has(i.address)
+      })),
       segments: this.segments.map(s => ({
         id: s.id,
         interfaceAddress: s.interfaceAddress,
@@ -290,16 +400,16 @@ export class MultiInterfaceDownload {
       }
     }
 
-    // 2. Partition file into totalConnections slices only on initial start
+    // 2. Partition file into initial slices (e.g. 16 or 24 slices)
     if (this.segments.length === 0) {
-      const count = Math.max(1, this.totalConnections);
-      const chunkSize = Math.floor(this.contentLength / count);
+      const initialCount = Math.max(16, this.totalConnections * 2);
+      const chunkSize = Math.floor(this.contentLength / initialCount);
       const availableInterfaces = this.interfaces.length > 0 ? this.interfaces : [{ address: null, label: 'Default Gateway' }];
 
-      for (let i = 0; i < count; i++) {
+      for (let i = 0; i < initialCount; i++) {
         const assignedIface = availableInterfaces[i % availableInterfaces.length];
         const start = i * chunkSize;
-        const end = (i === count - 1) ? this.contentLength - 1 : (i + 1) * chunkSize - 1;
+        const end = (i === initialCount - 1) ? this.contentLength - 1 : (i + 1) * chunkSize - 1;
 
         this.segments.push({
           id: i + 1,
@@ -324,100 +434,130 @@ export class MultiInterfaceDownload {
 
     this.notify();
 
-    // 3. Launch segment download workers concurrently with exact boundary clamping
-    const downloadSegment = async (seg) => {
-      if (seg.done || seg.currentOffset > seg.end) {
-        seg.done = true;
-        return;
-      }
-
-      seg.active = true;
-      if (seg.interfaceAddress && this.interfaceStats[seg.interfaceAddress]) {
-        this.interfaceStats[seg.interfaceAddress].activeStreams++;
-      }
-      this.notify();
-
-      try {
-        const stream = await requestChunk({
-          urlStr: this.url,
-          localAddress: seg.interfaceAddress,
-          start: seg.currentOffset,
-          end: seg.end,
-          signal: this.abortController.signal
-        });
-
-        await new Promise((resolve, reject) => {
-          stream.on('data', (chunk) => {
-            if (this.status !== 'downloading') {
-              stream.destroy();
-              return resolve();
-            }
-
-            try {
-              const remaining = seg.end - seg.currentOffset + 1;
-              if (remaining <= 0) {
-                stream.destroy();
-                return resolve();
-              }
-
-              const toWrite = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
-              fs.writeSync(this.fd, toWrite, 0, toWrite.length, seg.currentOffset);
-
-              seg.currentOffset += toWrite.length;
-              seg.downloaded += toWrite.length;
-              this.downloadedBytes += toWrite.length;
-
-              if (seg.interfaceAddress && this.interfaceStats[seg.interfaceAddress]) {
-                this.interfaceStats[seg.interfaceAddress].bytesDownloaded += toWrite.length;
-              }
-
-              if (seg.currentOffset > seg.end) {
-                stream.destroy();
-                return resolve();
-              }
-            } catch (writeErr) {
-              return reject(writeErr);
-            }
-          });
-
-          stream.on('end', () => {
-            seg.active = false;
-            if (seg.currentOffset > seg.end) {
-              seg.done = true;
-            }
-            if (seg.interfaceAddress && this.interfaceStats[seg.interfaceAddress]) {
-              this.interfaceStats[seg.interfaceAddress].activeStreams = Math.max(0, this.interfaceStats[seg.interfaceAddress].activeStreams - 1);
-            }
-            resolve();
-          });
-
-          stream.on('error', (err) => {
-            seg.active = false;
-            if (seg.interfaceAddress && this.interfaceStats[seg.interfaceAddress]) {
-              this.interfaceStats[seg.interfaceAddress].activeStreams = Math.max(0, this.interfaceStats[seg.interfaceAddress].activeStreams - 1);
-            }
-            if (this.status === 'paused' || this.status === 'cancelled' || this.abortController?.signal?.aborted) {
-              return resolve();
-            }
-            reject(err);
-          });
-        });
-      } catch (err) {
-        seg.active = false;
-        if (seg.interfaceAddress && this.interfaceStats[seg.interfaceAddress]) {
-          this.interfaceStats[seg.interfaceAddress].activeStreams = Math.max(0, this.interfaceStats[seg.interfaceAddress].activeStreams - 1);
+    // 3. Worker loop per connection slot with dynamic work-stealing
+    const runWorker = async (adapterAddress) => {
+      while (this.status === 'downloading') {
+        // If this adapter is paused by user, wait
+        if (this.pausedInterfaces.has(adapterAddress)) {
+          await new Promise(r => setTimeout(r, 400));
+          continue;
         }
-        if (this.status === 'paused' || this.status === 'cancelled' || this.abortController?.signal?.aborted) return;
-        throw err;
+
+        const seg = this.findOrStealWork(adapterAddress);
+        if (!seg) {
+          if (this.isAllDone()) break;
+          await new Promise(r => setTimeout(r, 200));
+          continue;
+        }
+
+        await this.downloadSegment(seg, adapterAddress);
       }
     };
 
-    // Run unfinished segments concurrently
-    const unfinished = this.segments.filter(s => !s.done && s.currentOffset <= s.end);
-    if (unfinished.length === 0) {
+    // 4. Launch workers across all configured network adapters
+    const availableInterfaces = this.interfaces.length > 0 ? this.interfaces : [{ address: null }];
+    const workersPerIface = Math.max(1, this.connectionsPerInterface || 2);
+    const workerPromises = [];
+
+    for (const iface of availableInterfaces) {
+      for (let w = 0; w < workersPerIface; w++) {
+        workerPromises.push(runWorker(iface.address));
+      }
+    }
+
+    await Promise.all(workerPromises);
+  }
+
+  async downloadSegment(seg, adapterAddress) {
+    if (seg.done || seg.currentOffset > seg.end) {
+      seg.done = true;
       return;
     }
-    await Promise.all(unfinished.map(downloadSegment));
+
+    if (this.pausedInterfaces.has(adapterAddress)) {
+      seg.active = false;
+      return;
+    }
+
+    seg.active = true;
+    seg.interfaceAddress = adapterAddress;
+    if (adapterAddress && this.interfaceStats[adapterAddress]) {
+      this.interfaceStats[adapterAddress].activeStreams++;
+    }
+    this.notify();
+
+    try {
+      const stream = await requestChunk({
+        urlStr: this.url,
+        localAddress: adapterAddress,
+        start: seg.currentOffset,
+        end: seg.end,
+        signal: this.abortController.signal
+      });
+
+      this.activeStreams.set(seg.id, { stream, adapterAddress });
+
+      await new Promise((resolve) => {
+        stream.on('data', (chunk) => {
+          if (this.status !== 'downloading' || this.pausedInterfaces.has(adapterAddress)) {
+            stream.destroy();
+            return resolve();
+          }
+
+          try {
+            const remaining = seg.end - seg.currentOffset + 1;
+            if (remaining <= 0) {
+              stream.destroy();
+              seg.done = true;
+              return resolve();
+            }
+
+            const toWrite = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
+            fs.writeSync(this.fd, toWrite, 0, toWrite.length, seg.currentOffset);
+
+            seg.currentOffset += toWrite.length;
+            seg.downloaded += toWrite.length;
+            this.downloadedBytes += toWrite.length;
+
+            if (adapterAddress && this.interfaceStats[adapterAddress]) {
+              this.interfaceStats[adapterAddress].bytesDownloaded += toWrite.length;
+            }
+
+            if (seg.currentOffset > seg.end) {
+              stream.destroy();
+              seg.done = true;
+              return resolve();
+            }
+          } catch (writeErr) {
+            console.warn(`[Turbo Downloader] Write error on segment ${seg.id}:`, writeErr.message);
+            stream.destroy();
+            return resolve();
+          }
+        });
+
+        stream.on('end', () => {
+          seg.active = false;
+          if (seg.currentOffset > seg.end) {
+            seg.done = true;
+          }
+          resolve();
+        });
+
+        stream.on('error', () => {
+          seg.active = false;
+          resolve();
+        });
+      });
+    } catch (err) {
+      seg.active = false;
+    } finally {
+      seg.active = false;
+      this.activeStreams.delete(seg.id);
+      if (adapterAddress && this.interfaceStats[adapterAddress]) {
+        this.interfaceStats[adapterAddress].activeStreams = Math.max(0, this.interfaceStats[adapterAddress].activeStreams - 1);
+      }
+      this.notify();
+    }
   }
 
   async startFallbackDownload() {

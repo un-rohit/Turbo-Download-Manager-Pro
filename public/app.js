@@ -78,18 +78,18 @@ function renderAdapters() {
     const safeId = iface.address.replace(/[^a-zA-Z0-9]/g, '_');
 
     return `
-      <div class="adapter-card ${isSelected ? 'active-bonded' : ''}" id="adapter-${safeId}">
+      <div class="adapter-card ${isSelected ? 'active-bonded' : 'adapter-paused'}" id="adapter-${safeId}">
         <div class="adapter-top">
           <div class="adapter-meta">
-            <div class="adapter-icon-box" style="color: ${color}">
+            <div class="adapter-icon-box" style="color: ${isSelected ? color : '#64748b'}">
               ${iface.icon}
             </div>
             <div>
-              <div class="adapter-name-text">${iface.name}</div>
+              <div class="adapter-name-text">${iface.name} ${isSelected ? '' : '<span style="color:#ffb800;font-size:0.75rem;font-weight:700;">(PAUSED)</span>'}</div>
               <div class="adapter-type-pill">${iface.label}</div>
             </div>
           </div>
-          <label class="switch-wrap" title="Include this adapter in channel bonding">
+          <label class="switch-wrap" title="${isSelected ? 'Click to Pause this adapter from downloads' : 'Click to Resume this adapter'}">
             <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleAdapter('${iface.address}')">
           </label>
         </div>
@@ -102,19 +102,22 @@ function renderAdapters() {
 
           <div class="adapter-stat-item">
             <span class="adapter-stat-label">STATUS</span>
-            <span class="adapter-stat-val" style="color: ${iface.online ? '#00f5a0' : '#ff3366'}">
-              ${iface.online ? '● ONLINE' : '○ NO ROUTE'}
+            <span class="adapter-stat-val" style="color: ${!isSelected ? '#ffb800' : (iface.online ? '#00f5a0' : '#ff3366')}">
+              ${!isSelected ? '⏸ PAUSED' : (iface.online ? '● ONLINE' : '○ NO ROUTE')}
             </span>
           </div>
 
           <div class="adapter-stat-item">
             <span class="adapter-stat-label">LIVE SPEED</span>
-            <span class="adapter-stat-val mono live-speed" id="speed-${safeId}">0 KB/s</span>
+            <span class="adapter-stat-val mono live-speed" id="speed-${safeId}">${!isSelected ? 'PAUSED' : '0 KB/s'}</span>
           </div>
         </div>
 
         <div class="adapter-speedtest-row">
           <span id="speedtest-badge-${safeId}" class="speedtest-result-badge" style="display: none;"></span>
+          <button type="button" class="btn btn-xs ${isSelected ? 'btn-pause-device' : 'btn-resume-device'}" onclick="toggleAdapter('${iface.address}')" title="${isSelected ? 'Pause adapter from downloads — remaining adapters will pick up its load' : 'Resume adapter and bond with downloads'}">
+            ${isSelected ? '⏸ Pause Adapter' : '▶ Resume Adapter'}
+          </button>
           <button type="button" class="btn btn-xs btn-glass" onclick="testSingleAdapterSpeed('${iface.address}')" ${!iface.online ? 'disabled title="Adapter is offline"' : 'title="Benchmark download speed on this adapter"'}>
             ⚡ Test Speed
           </button>
@@ -124,14 +127,49 @@ function renderAdapters() {
   }).join('');
 }
 
-window.toggleAdapter = function(address) {
-  if (selectedInterfaces.has(address)) {
-    selectedInterfaces.delete(address);
-  } else {
+window.toggleAdapter = async function(address) {
+  const willEnable = !selectedInterfaces.has(address);
+  if (willEnable) {
     selectedInterfaces.add(address);
+  } else {
+    selectedInterfaces.delete(address);
   }
   renderAdapters();
   updateHeaderHud();
+  if (window.energyFlowVisualizer) {
+    window.energyFlowVisualizer.updateData();
+  }
+
+  try {
+    await fetch('/api/interfaces/toggle', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address, enabled: willEnable })
+    });
+  } catch (err) {
+    console.error('Failed to toggle interface on backend:', err);
+  }
+};
+
+window.toggleDownloadInterface = async function(downloadId, address, enabled) {
+  try {
+    const res = await fetch(`/api/downloads/${downloadId}/toggle-interface`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ address, enabled })
+    });
+    const data = await res.json();
+    const task = activeDownloads.get(downloadId);
+    if (task && task.interfaces) {
+      const target = task.interfaces.find(i => i.address === address);
+      if (target) {
+        target.paused = !enabled;
+      }
+      renderActiveDownloads();
+    }
+  } catch (err) {
+    console.error('Failed to toggle download interface:', err);
+  }
 };
 
 function updateHeaderHud() {
@@ -276,12 +314,17 @@ function renderActiveDownloads() {
       return `<div class="segment-block ${stateClass}" title="Segment ${seg.id}: ${formatBytes(seg.downloaded)} / ${formatBytes(seg.total)}">${seg.id}</div>`;
     }).join('');
 
-    // Per-interface contribution pills
-    const contribsHtml = (item.interfaces || []).map(iface => {
+    // Per-interface contribution pills with individual pause/resume controls
+    const contribsHtml = (item.interfaces || []).map((iface, idx) => {
+      const isIfacePaused = !!iface.paused;
+      const color = INTERFACE_COLORS[idx % INTERFACE_COLORS.length];
       return `
-        <div class="contrib-pill">
-          <span class="contrib-dot" style="background: #00f2fe"></span>
-          <span>${iface.name}: ${formatBytes(iface.bytesDownloaded)} (${isPaused ? '0 B/s' : formatSpeed(iface.currentSpeed)})</span>
+        <div class="contrib-pill ${isIfacePaused ? 'contrib-pill-paused' : ''}">
+          <span class="contrib-dot" style="background: ${isIfacePaused ? '#ffb800' : color}"></span>
+          <span><strong>${iface.name}</strong>: ${formatBytes(iface.bytesDownloaded)} (${isIfacePaused ? '<span style="color:#ffb800;">PAUSED</span>' : (isPaused ? '0 B/s' : formatSpeed(iface.currentSpeed))})</span>
+          <button type="button" class="btn btn-xs ${isIfacePaused ? 'btn-resume-device' : 'btn-pause-device'}" onclick="toggleDownloadInterface('${item.id}', '${iface.address}', ${isIfacePaused})" title="${isIfacePaused ? 'Resume this device — it will resume downloading' : 'Pause this device — other devices will complete its download'}">
+            ${isIfacePaused ? '▶ Resume' : '⏸ Pause'}
+          </button>
         </div>
       `;
     }).join('');
@@ -1135,9 +1178,45 @@ class QuantumEnergyFlowCanvas {
     this.animating = false;
     this.lastFrameTime = performance.now();
     this.minimized = false;
+    this.clickableRegions = [];
+    this.hoveredAddress = null;
+
+    this.canvas.addEventListener('click', (e) => this.handleClick(e));
+    this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+    this.canvas.addEventListener('mouseleave', () => {
+      this.hoveredAddress = null;
+      if (this.canvas) this.canvas.style.cursor = 'default';
+    });
 
     this.resize();
     window.addEventListener('resize', () => this.resize());
+  }
+
+  handleClick(e) {
+    if (!this.canvas) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const scaleX = this.canvas.width / rect.width;
+    const scaleY = this.canvas.height / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top) * scaleY;
+
+    const hit = this.clickableRegions.find(r => mx >= r.x1 && mx <= r.x2 && my >= r.y1 && my <= r.y2);
+    if (hit && window.toggleAdapter) {
+      window.toggleAdapter(hit.address);
+    }
+  }
+
+  handleMouseMove(e) {
+    if (!this.canvas) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const scaleX = this.canvas.width / rect.width;
+    const scaleY = this.canvas.height / rect.height;
+    const mx = (e.clientX - rect.left) * scaleX;
+    const my = (e.clientY - rect.top) * scaleY;
+
+    const hit = this.clickableRegions.find(r => mx >= r.x1 && mx <= r.x2 && my >= r.y1 && my <= r.y2);
+    this.hoveredAddress = hit ? hit.address : null;
+    this.canvas.style.cursor = hit ? 'pointer' : 'default';
   }
 
   resize() {
@@ -1161,8 +1240,8 @@ class QuantumEnergyFlowCanvas {
   }
 
   updateData(speeds, total) {
-    this.adapterSpeeds = speeds || {};
-    this.totalSpeed = total || 0;
+    if (speeds !== undefined) this.adapterSpeeds = speeds || {};
+    if (total !== undefined) this.totalSpeed = total || 0;
   }
 
   start() {
@@ -1186,18 +1265,18 @@ class QuantumEnergyFlowCanvas {
     const h = this.height;
 
     ctx.clearRect(0, 0, w, h);
+    this.clickableRegions = [];
 
-    const activeIfaces = networkInterfaces.filter(i => selectedInterfaces.has(i.address));
-    const ifacesToDraw = activeIfaces.length > 0 ? activeIfaces : networkInterfaces;
+    const ifacesToDraw = networkInterfaces.length > 0 ? networkInterfaces : [];
     const ifaceCount = Math.max(1, ifacesToDraw.length);
 
-    // Clean padding preventing vertical clipping
+    // Padding preventing vertical clipping
     const topPadding = 42;
     const bottomPadding = 42;
     const usableHeight = Math.max(80, h - topPadding - bottomPadding);
     const step = ifaceCount > 1 ? usableHeight / (ifaceCount - 1) : 0;
 
-    const srcX = 220; // Generous space on left for full adapter names
+    const srcX = 230; // Clean space on left for adapter labels and pause buttons
     const destX = w - 110;
     const destY = h / 2;
 
@@ -1218,14 +1297,15 @@ class QuantumEnergyFlowCanvas {
     // Sources mapping
     const sources = ifacesToDraw.map((iface, index) => {
       const srcY = ifaceCount === 1 ? h / 2 : topPadding + (step * index);
-      const speed = this.isSurgeDemo ? 22 * 1024 * 1024 : (this.adapterSpeeds[iface.address] || 0);
-      const color = INTERFACE_COLORS[index % INTERFACE_COLORS.length];
-      return { iface, index, x: srcX, y: srcY, color, speed };
+      const isPaused = !selectedInterfaces.has(iface.address);
+      const speed = isPaused ? 0 : (this.isSurgeDemo ? 22 * 1024 * 1024 : (this.adapterSpeeds[iface.address] || 0));
+      const color = isPaused ? '#ffb800' : INTERFACE_COLORS[index % INTERFACE_COLORS.length];
+      return { iface, index, x: srcX, y: srcY, color, speed, isPaused };
     });
 
-    // 1. Draw smooth conduit lines (clean, lightweight strokes, no heavy blur)
+    // 1. Draw conduit lines
     sources.forEach(src => {
-      const hasTraffic = src.speed > 0 || this.isSurgeDemo;
+      const hasTraffic = !src.isPaused && (src.speed > 0 || this.isSurgeDemo);
       const cp1X = src.x + (destX - src.x) * 0.5;
       const cp1Y = src.y;
       const cp2X = destX - (destX - src.x) * 0.5;
@@ -1234,26 +1314,37 @@ class QuantumEnergyFlowCanvas {
       ctx.beginPath();
       ctx.moveTo(src.x, src.y);
       ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, destX, destY);
-      ctx.lineWidth = hasTraffic ? 2.5 : 1.5;
-      ctx.strokeStyle = hasTraffic ? src.color : 'rgba(255, 255, 255, 0.12)';
+
+      if (src.isPaused) {
+        ctx.setLineDash([5, 5]);
+        ctx.lineWidth = 1.5;
+        ctx.strokeStyle = 'rgba(255, 184, 0, 0.25)';
+      } else {
+        ctx.setLineDash([]);
+        ctx.lineWidth = hasTraffic ? 2.5 : 1.5;
+        ctx.strokeStyle = hasTraffic ? src.color : 'rgba(255, 255, 255, 0.12)';
+      }
       ctx.stroke();
+      ctx.setLineDash([]);
 
-      // Spawn at most 3-4 gentle pulses per active adapter
-      const targetPulseCount = hasTraffic ? 4 : 1;
-      const pulsesForSrc = this.pulses.filter(p => p.srcIdx === src.index);
+      // Spawn data pulses only for unpaused active adapters
+      if (!src.isPaused) {
+        const targetPulseCount = hasTraffic ? 4 : 1;
+        const pulsesForSrc = this.pulses.filter(p => p.srcIdx === src.index);
 
-      if (pulsesForSrc.length < targetPulseCount && Math.random() < 0.06) {
-        this.pulses.push({
-          srcIdx: src.index,
-          t: 0,
-          speedRate: hasTraffic ? (0.35 + Math.min(0.45, src.speed / (15 * 1024 * 1024))) : 0.2,
-          color: src.color,
-          size: hasTraffic ? 3.5 : 2.5
-        });
+        if (pulsesForSrc.length < targetPulseCount && Math.random() < 0.06) {
+          this.pulses.push({
+            srcIdx: src.index,
+            t: 0,
+            speedRate: hasTraffic ? (0.35 + Math.min(0.45, src.speed / (15 * 1024 * 1024))) : 0.2,
+            color: src.color,
+            size: hasTraffic ? 3.5 : 2.5
+          });
+        }
       }
     });
 
-    // 2. Draw moving data pulses (featherweight)
+    // 2. Draw moving data pulses
     for (let i = this.pulses.length - 1; i >= 0; i--) {
       const p = this.pulses[i];
       p.t += p.speedRate * dt;
@@ -1264,7 +1355,7 @@ class QuantumEnergyFlowCanvas {
       }
 
       const src = sources[p.srcIdx];
-      if (!src) {
+      if (!src || src.isPaused) {
         this.pulses.splice(i, 1);
         continue;
       }
@@ -1290,36 +1381,88 @@ class QuantumEnergyFlowCanvas {
       ctx.fill();
     }
 
-    // 3. Draw Left Adapter Nodes
+    // 3. Draw Left Adapter Nodes with interactive Pause/Resume buttons
     sources.forEach(src => {
-      const hasTraffic = src.speed > 0 || this.isSurgeDemo;
+      const isHovered = this.hoveredAddress === src.iface.address;
+      const hasTraffic = !src.isPaused && (src.speed > 0 || this.isSurgeDemo);
 
-      // Draw Adapter Label & Speed cleanly to the left starting at x = 20 (no clipping)
+      // Register clickable region for this adapter row
+      this.clickableRegions.push({
+        address: src.iface.address,
+        x1: 12,
+        x2: src.x + 22,
+        y1: src.y - 24,
+        y2: src.y + 24
+      });
+
+      // Hover background highlight
+      if (isHovered) {
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+        ctx.beginPath();
+        if (ctx.roundRect) {
+          ctx.roundRect(12, src.y - 20, src.x + 8, 40, 8);
+        } else {
+          ctx.rect(12, src.y - 20, src.x + 8, 40);
+        }
+        ctx.fill();
+      }
+
+      // Draw Adapter Label
       const rawName = `${src.iface.icon || '📶'} ${src.iface.name || 'Adapter'}`;
-      const displayName = rawName.length > 22 ? rawName.substring(0, 20) + '...' : rawName;
+      const displayName = rawName.length > 18 ? rawName.substring(0, 16) + '...' : rawName;
 
       ctx.font = '600 12px "Plus Jakarta Sans", sans-serif';
-      ctx.fillStyle = '#f8fafc';
+      ctx.fillStyle = src.isPaused ? '#ffb800' : '#f8fafc';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(displayName, 20, src.y - 8);
+      ctx.fillText(`${displayName}${src.isPaused ? ' (PAUSED)' : ''}`, 20, src.y - 8);
 
+      // Speed / Status line
       ctx.font = '700 11px "JetBrains Mono", monospace';
-      ctx.fillStyle = hasTraffic ? '#00f5a0' : '#64748b';
-      ctx.fillText(formatSpeed(src.speed), 20, src.y + 10);
+      if (src.isPaused) {
+        ctx.fillStyle = '#ffb800';
+        ctx.fillText('0 B/s (ROUTED TO OTHERS)', 20, src.y + 10);
+      } else {
+        ctx.fillStyle = hasTraffic ? '#00f5a0' : '#64748b';
+        ctx.fillText(formatSpeed(src.speed), 20, src.y + 10);
+      }
 
-      // Node circle at x = 220
+      // Interactive Pause/Resume Button Badge right on the canvas!
+      const btnW = 54;
+      const btnH = 20;
+      const btnX = src.x - btnW - 14;
+      const btnY = src.y - btnH / 2;
+
+      ctx.beginPath();
+      if (ctx.roundRect) {
+        ctx.roundRect(btnX, btnY, btnW, btnH, 4);
+      } else {
+        ctx.rect(btnX, btnY, btnW, btnH);
+      }
+      ctx.fillStyle = src.isPaused ? 'rgba(0, 245, 160, 0.2)' : 'rgba(255, 184, 0, 0.2)';
+      ctx.strokeStyle = src.isPaused ? '#00f5a0' : 'rgba(255, 184, 0, 0.6)';
+      ctx.lineWidth = 1;
+      ctx.fill();
+      ctx.stroke();
+
+      ctx.font = '700 9px "Plus Jakarta Sans", sans-serif';
+      ctx.fillStyle = src.isPaused ? '#00f5a0' : '#ffb800';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(src.isPaused ? '▶ RESUME' : '⏸ PAUSE', btnX + btnW / 2, btnY + btnH / 2);
+
+      // Node circle at x = src.x
       ctx.beginPath();
       ctx.arc(src.x, src.y, 14, 0, Math.PI * 2);
       ctx.fillStyle = '#0a101d';
-      ctx.strokeStyle = hasTraffic ? src.color : 'rgba(255, 255, 255, 0.2)';
+      ctx.strokeStyle = src.isPaused ? '#ffb800' : (hasTraffic ? src.color : 'rgba(255, 255, 255, 0.2)');
       ctx.lineWidth = 2;
       ctx.fill();
       ctx.stroke();
 
       ctx.beginPath();
       ctx.arc(src.x, src.y, 5, 0, Math.PI * 2);
-      ctx.fillStyle = hasTraffic ? src.color : '#64748b';
+      ctx.fillStyle = src.isPaused ? '#ffb800' : (hasTraffic ? src.color : '#64748b');
       ctx.fill();
     });
 

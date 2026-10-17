@@ -58,8 +58,34 @@ export function testInterfaceConnectivity(ipAddress, timeoutMs = 2500) {
   });
 }
 
+export function isVirtualMachineInterface(name) {
+  const lower = (name || '').toLowerCase();
+  return (
+    lower.includes('vmware') ||
+    lower.includes('vmnet') ||
+    lower.includes('virtualbox') ||
+    lower.includes('vbox') ||
+    lower.includes('hyper-v') ||
+    lower.includes('vethernet') ||
+    lower.includes('virtual') ||
+    lower.includes('wsl') ||
+    lower.includes('qemu') ||
+    lower.includes('kvm') ||
+    lower.includes('tap') ||
+    lower.includes('tun') ||
+    lower.includes('wireguard') ||
+    lower.includes('openvpn') ||
+    lower.includes('tailscale') ||
+    lower.includes('zerotier') ||
+    lower.includes('loopback') ||
+    lower.includes('npcap') ||
+    lower.includes('teredo') ||
+    lower.includes('isatap')
+  );
+}
+
 /**
- * Discovers and tests all available physical and logical network interfaces.
+ * Discovers and tests all available physical network interfaces (always ignoring VM adapters).
  */
 export async function getNetworkInterfaces(verifyConnectivity = true) {
   const rawInterfaces = os.networkInterfaces();
@@ -67,6 +93,8 @@ export async function getNetworkInterfaces(verifyConnectivity = true) {
 
   for (const [name, addrs] of Object.entries(rawInterfaces)) {
     if (!addrs) continue;
+    // Always ignore virtual machine device networks
+    if (isVirtualMachineInterface(name)) continue;
 
     for (const info of addrs) {
       // Exclude loopback and internal addresses
@@ -83,7 +111,7 @@ export async function getNetworkInterfaces(verifyConnectivity = true) {
         type: meta.type,
         label: meta.label,
         icon: meta.icon,
-        isVirtual: meta.type === 'virtual',
+        isVirtual: false,
         online: false
       });
     }

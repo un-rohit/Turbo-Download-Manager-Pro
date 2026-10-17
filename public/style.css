@@ -587,19 +587,75 @@ body {
 .contrib-pill {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 4px 10px;
+  gap: 8px;
+  padding: 4px 12px;
   background: rgba(255, 255, 255, 0.05);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-full);
   font-size: 0.75rem;
   font-family: var(--font-mono);
+  transition: all 0.2s ease;
+}
+
+.contrib-pill.contrib-pill-paused {
+  background: rgba(255, 184, 0, 0.08);
+  border-color: rgba(255, 184, 0, 0.4);
+  color: #ffb800;
 }
 
 .contrib-dot {
   width: 6px;
   height: 6px;
   border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.btn-pause-device {
+  background: rgba(255, 184, 0, 0.15);
+  color: #ffb800;
+  border: 1px solid rgba(255, 184, 0, 0.35);
+  padding: 2px 7px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-pause-device:hover {
+  background: rgba(255, 184, 0, 0.3);
+  color: #fff;
+  border-color: #ffb800;
+}
+
+.btn-resume-device {
+  background: rgba(0, 245, 160, 0.15);
+  color: #00f5a0;
+  border: 1px solid rgba(0, 245, 160, 0.35);
+  padding: 2px 7px;
+  font-size: 0.68rem;
+  font-weight: 700;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-resume-device:hover {
+  background: rgba(0, 245, 160, 0.3);
+  color: #fff;
+  border-color: #00f5a0;
+}
+
+.btn-danger-glass {
+  background: rgba(255, 51, 102, 0.12);
+  color: #ff3366;
+  border: 1px solid rgba(255, 51, 102, 0.3);
+}
+
+.btn-danger-glass:hover {
+  background: rgba(255, 51, 102, 0.25);
+  color: #fff;
+  border-color: #ff3366;
 }
 
 /* History Table */

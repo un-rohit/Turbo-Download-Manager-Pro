@@ -423,6 +423,30 @@ export async function handleRequest(req, res) {
     return sendJson(res, 200, { ok: true });
   }
 
+  const toggleIfaceMatch = url.pathname.match(/^\/api\/downloads\/([^/]+)\/toggle-interface$/);
+  if (toggleIfaceMatch && req.method === 'POST') {
+    try {
+      const body = await parseJsonBody(req);
+      const downloadId = toggleIfaceMatch[1];
+      const enabled = body.enabled !== undefined ? !!body.enabled : !body.paused;
+      downloadManager.toggleInterface(downloadId, body.address, enabled);
+      return sendJson(res, 200, { ok: true, id: downloadId, address: body.address, enabled });
+    } catch (err) {
+      return sendJson(res, 500, { error: err.message });
+    }
+  }
+
+  if (url.pathname === '/api/interfaces/toggle' && req.method === 'POST') {
+    try {
+      const body = await parseJsonBody(req);
+      const enabled = body.enabled !== undefined ? !!body.enabled : !body.paused;
+      downloadManager.toggleGlobalInterface(body.address, enabled);
+      return sendJson(res, 200, { ok: true, address: body.address, enabled });
+    } catch (err) {
+      return sendJson(res, 500, { error: err.message });
+    }
+  }
+
   if (url.pathname === '/api/open-folder' && req.method === 'POST') {
     try {
       const body = await parseJsonBody(req);

@@ -96,6 +96,27 @@ class DownloadManager {
       this.downloads.delete(id);
     }
   }
+
+  toggleInterface(id, address, enabled) {
+    const d = this.downloads.get(id);
+    if (d) {
+      if (enabled) {
+        d.resumeInterface(address);
+      } else {
+        d.pauseInterface(address);
+      }
+    }
+  }
+
+  toggleGlobalInterface(address, enabled) {
+    for (const d of this.downloads.values()) {
+      if (enabled) {
+        d.resumeInterface(address);
+      } else {
+        d.pauseInterface(address);
+      }
+    }
+  }
 }
 
 export const downloadManager = new DownloadManager();
