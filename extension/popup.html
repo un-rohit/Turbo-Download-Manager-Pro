@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Turbo Download Manager</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <div class="popup-header">
+      <div class="brand">
+        <span class="brand-icon">⚡</span>
+        <div>
+          <h4>TURBO <span class="badge">DOWNLOAD</span></h4>
+          <span class="sub">Manager Extension</span>
+        </div>
+      </div>
+      <div id="statusPill" class="status-pill offline">
+        <span class="dot"></span>
+        <span id="statusText">CHECKING...</span>
+      </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="stats-card">
+      <div class="stat-col">
+        <span class="stat-label">TOTAL SPEED</span>
+        <span id="speedValue" class="stat-val mono">0 KB/s</span>
+      </div>
+      <div class="stat-col">
+        <span class="stat-label">ACTIVE JOBS</span>
+        <span id="activeJobsCount" class="stat-val mono">0</span>
+      </div>
+      <div class="stat-col">
+        <span class="stat-label">BONDED ADAPTERS</span>
+        <span id="bondedCount" class="stat-val mono">0</span>
+      </div>
+    </div>
+
+    <!-- Settings & Toggles -->
+    <div class="toggle-list">
+      <label class="toggle-row">
+        <span>Intercept Browser Downloads</span>
+        <input type="checkbox" id="chkIntercept" checked>
+      </label>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="action-buttons">
+      <button id="btnOpenDashboard" class="btn btn-primary">
+        Open Desktop App
+      </button>
+      <button id="btnDownloadCurrentTab" class="btn btn-glass">
+        Download Current Page
+      </button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

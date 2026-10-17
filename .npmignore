@@ -1,0 +1,5 @@
+downloads/
+dist/
+*.iso
+*.bin
+*.log

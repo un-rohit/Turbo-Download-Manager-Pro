@@ -1,0 +1,686 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Turbo Download Manager — Multi-Interface Accelerator</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="cyber-theme">
+  <!-- Glowing Background Grid Accent -->
+  <div class="cyber-grid-overlay"></div>
+  <div class="ambient-glow glow-cyan"></div>
+  <div class="ambient-glow glow-purple"></div>
+
+  <div class="app-container">
+    <!-- Header HUD -->
+    <header class="app-header">
+      <div class="brand-section">
+        <div class="logo-orb">
+          <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" fill="#00f2fe" stroke="#00f2fe"/>
+          </svg>
+        </div>
+        <div class="brand-text">
+          <h1>TURBO <span class="badge">DOWNLOAD MANAGER</span></h1>
+          <p class="subtitle">Multi-Interface Hardware Channel Bonding Accelerator</p>
+        </div>
+      </div>
+
+      <!-- Live Speed HUD & Action Buttons -->
+      <div class="header-hud">
+        <div class="hud-item total-speed-box">
+          <span class="hud-label">AGGREGATE BANDWIDTH</span>
+          <div class="hud-value-row">
+            <span class="pulse-dot"></span>
+            <span id="globalSpeed" class="hud-value mono">0.0 MB/s</span>
+          </div>
+        </div>
+
+        <div class="hud-item active-ifaces-box">
+          <span class="hud-label">BONDED ADAPTERS</span>
+          <span id="activeIfacesCount" class="hud-value mono">0 ACTIVE</span>
+        </div>
+
+        <button id="btnOpenSettingsModal" class="btn btn-glass" title="IDM Configuration & Download Folders">
+          <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+            <circle cx="12" cy="12" r="3"></circle>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
+          </svg>
+          Settings
+        </button>
+
+        <button id="btnOpenNewModal" class="btn btn-primary">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.5">
+            <line x1="12" y1="5" x2="12" y2="19"></line>
+            <line x1="5" y1="12" x2="19" y2="12"></line>
+          </svg>
+          New Download
+        </button>
+      </div>
+    </header>
+
+    <!-- Main Content Grid -->
+    <main class="main-layout">
+      <!-- Real-Time Hardware Electron Flow Visualizer -->
+      <section class="section-card electron-visualizer-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <span class="section-icon pulse-glow">⚛️</span>
+            <h2>Hardware Channel Bonding & Electricity Transfer Grid</h2>
+          </div>
+          <div class="visualizer-status-pill">
+            <span class="energy-pulse"></span>
+            <span id="canvasFlowStatus">QUANTUM DATA FLOW: ACTIVE</span>
+          </div>
+        </div>
+        <p class="section-hint">
+          Real-time visualization of electric data streams flowing from your active physical adapters (Wi-Fi, USB Ethernet, LAN, Bluetooth) directly into your PC's storage bus.
+        </p>
+
+        <div class="canvas-container">
+          <canvas id="energyFlowCanvas"></canvas>
+        </div>
+        <div class="visualizer-footer-hud">
+          <div class="hud-stat-box">
+            <span class="hud-mini-label">SURGE LEVEL</span>
+            <span id="surgeLevelText" class="hud-mini-val mono">IDLE (0%)</span>
+          </div>
+          <div class="hud-stat-box">
+            <span class="hud-mini-label">TOTAL INFLOW</span>
+            <span id="totalInflowText" class="hud-mini-val mono">0.0 MB/s</span>
+          </div>
+          <button id="btnSurgeDemo" class="btn btn-sm btn-glass" title="Preview high-speed electric stream animation">
+            ⚡ Test Lightning Surge
+          </button>
+        </div>
+      </section>
+
+      <!-- Network Adapter Bonding Panel & Speed Tester -->
+      <section class="section-card adapter-matrix-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <span class="section-icon">⚡</span>
+            <h2>Active Network Interfaces (Channel Bonding)</h2>
+          </div>
+          <div class="section-actions">
+            <button id="btnTestAllSpeeds" class="btn btn-sm btn-accent" title="Benchmark download speed across all active adapters concurrently">
+              <span class="bolt-icon">⚡</span> Test All Speeds
+            </button>
+            <button id="btnScanAdapters" class="btn btn-sm btn-glass">
+              <span class="btn-spinner" id="scanSpinner" style="display: none;">↻</span>
+              Refresh Adapters
+            </button>
+          </div>
+        </div>
+        <p class="section-hint">
+          Turbo Download Manager routes concurrent download segments across every checked physical adapter (Wi-Fi + USB Tethering + Ethernet + Bluetooth) simultaneously, aggregating your total speed.
+        </p>
+
+        <!-- Speed Test Live Aggregate Banner -->
+        <div id="speedTestBanner" class="speedtest-banner" style="display: none;">
+          <div class="speedtest-banner-content">
+            <div class="speedtest-spinner-orb">⚡</div>
+            <div class="speedtest-banner-text">
+              <strong id="speedTestBannerTitle">Benchmarking Network Interfaces...</strong>
+              <p id="speedTestBannerSub">Measuring latency and real-time CDN throughput on selected adapters</p>
+            </div>
+            <div class="speedtest-banner-stats">
+              <div class="stat-pill">
+                <span class="stat-lbl">AGGREGATE SPEED</span>
+                <span id="speedTestBannerMbps" class="stat-val mono">-- Mbps</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div id="adapterList" class="adapter-grid">
+          <!-- Dynamically populated adapter cards -->
+          <div class="empty-state">Scanning network adapters...</div>
+        </div>
+      </section>
+
+      <!-- Active Downloads Section -->
+      <section class="section-card active-downloads-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <span class="section-icon">⬇</span>
+            <h2>Active Downloads</h2>
+          </div>
+          <span id="activeTasksBadge" class="count-pill">0 IN FLIGHT</span>
+        </div>
+
+        <div id="activeList" class="downloads-container">
+          <div class="empty-downloads">
+            <div class="empty-icon">📂</div>
+            <h3>No Active Downloads</h3>
+            <p>Paste a file link to start multi-interface accelerated downloading.</p>
+            <button id="btnEmptyNew" class="btn btn-secondary">Add Download URL</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- Download History Section -->
+      <section class="section-card history-card">
+        <div class="section-header">
+          <div class="section-title-wrap">
+            <span class="section-icon">🕒</span>
+            <h2>Recent Downloads</h2>
+          </div>
+          <button id="btnOpenDownloadsFolder" class="btn btn-sm btn-glass">
+            Open Downloads Folder
+          </button>
+        </div>
+
+        <div id="historyTableContainer" class="history-table-container">
+          <table class="history-table">
+            <thead>
+              <tr>
+                <th>File Name</th>
+                <th>Size</th>
+                <th>Status</th>
+                <th>Date</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody id="historyList">
+              <tr>
+                <td colspan="5" class="empty-table-cell">No previous downloads found</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </main>
+
+    <!-- New Download Modal (with prominent Save Location & Category routing) -->
+    <div id="newDownloadModal" class="modal-backdrop" style="display: none;">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="modal-title-row">
+            <span class="modal-icon">🚀</span>
+            <h3>Add Fast Download Task</h3>
+          </div>
+          <button id="btnCloseModal" class="btn-close">&times;</button>
+        </div>
+
+        <form id="downloadForm" class="modal-body">
+          <div class="form-group">
+            <label for="inputUrl">File Download URL</label>
+            <div class="input-with-button">
+              <input type="url" id="inputUrl" placeholder="https://example.com/large-file.iso" required autocomplete="off">
+              <button type="button" id="btnProbeUrl" class="btn btn-sm btn-accent">Probe</button>
+            </div>
+            <span id="probeResultText" class="probe-feedback"></span>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group col">
+              <label for="inputFilename">Output File Name</label>
+              <input type="text" id="inputFilename" placeholder="Auto-detected" autocomplete="off">
+            </div>
+
+            <div class="form-group col">
+              <label for="inputStreamsPerIface">Connections Per Adapter</label>
+              <select id="inputStreamsPerIface">
+                <option value="1">1 Connection (Conservative)</option>
+                <option value="2">2 Connections (Balanced)</option>
+                <option value="4" selected>4 Connections (High Performance)</option>
+                <option value="8">8 Connections (Extreme Speed)</option>
+                <option value="16">16 Connections (Ultra Turbo)</option>
+              </select>
+            </div>
+          </div>
+
+          <!-- Download Location Picker (IDM Style with Category Detection) -->
+          <div class="form-group">
+            <div class="label-with-badge">
+              <label for="inputOutputDir">Save Location (Download Folder)</label>
+              <span id="categoryBadge" class="cat-pill">Category: General</span>
+            </div>
+            <div class="input-with-button">
+              <input type="text" id="inputOutputDir" placeholder="Auto-categorized Download Folder" required>
+              <button type="button" id="btnBrowseDownloadDir" class="btn btn-sm btn-glass">Browse...</button>
+            </div>
+            <div class="sub-options-row">
+              <label class="checkbox-sub">
+                <input type="checkbox" id="chkRememberCategoryPath" checked>
+                <span>Remember this directory for this category</span>
+              </label>
+              <span id="categoryPathHint" class="category-hint"></span>
+            </div>
+          </div>
+
+          <!-- Interfaces Selected for This Download -->
+          <div class="form-group">
+            <label>Selected Adapters for this Download</label>
+            <div id="modalIfaceCheckboxes" class="modal-iface-list">
+              <!-- Dynamically populated -->
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" id="btnCancelModal" class="btn btn-glass">Cancel</button>
+            <button type="submit" id="btnSubmitDownload" class="btn btn-primary">
+              ⚡ Start Bonded Download
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- IDM Comprehensive Configuration & Settings Modal (8 Full IDM Tabs) -->
+    <div id="settingsModal" class="modal-backdrop" style="display: none;">
+      <div class="modal-card modal-lg">
+        <div class="modal-header">
+          <div class="modal-title-row">
+            <span class="modal-icon">⚙️</span>
+            <h3>Turbo Download Manager Configuration</h3>
+          </div>
+          <button id="btnCloseSettingsModal" class="btn-close">&times;</button>
+        </div>
+
+        <!-- Settings Tab Navigation (All IDM Tabs) -->
+        <div class="settings-tabs-header">
+          <button type="button" class="tab-btn active" data-tab="tabSaveTo">📁 Save To</button>
+          <button type="button" class="tab-btn" data-tab="tabConnection">⚡ Connection</button>
+          <button type="button" class="tab-btn" data-tab="tabFileTypes">📑 File Types</button>
+          <button type="button" class="tab-btn" data-tab="tabGeneral">⚙️ General</button>
+          <button type="button" class="tab-btn" data-tab="tabDownloads">⬇️ Downloads</button>
+          <button type="button" class="tab-btn" data-tab="tabProxy">🔒 Proxy / Socks</button>
+          <button type="button" class="tab-btn" data-tab="tabSiteLogins">🔑 Site Logins</button>
+          <button type="button" class="tab-btn" data-tab="tabNetwork">🌐 Network & UA</button>
+        </div>
+
+        <form id="settingsForm" class="modal-body">
+          <!-- Tab 1: Save To / Categories (IDM Standard) -->
+          <div id="tabSaveTo" class="tab-pane active">
+            <div class="form-group">
+              <label for="settingsCategorySelect">Selected Category to Configure:</label>
+              <select id="settingsCategorySelect">
+                <option value="General">General (Default for Unclassified)</option>
+                <option value="Compressed">Compressed (ZIP, RAR, 7Z, ISO, TAR, GZ)</option>
+                <option value="Documents">Documents (PDF, DOCX, XLSX, TXT)</option>
+                <option value="Music">Music (MP3, WAV, FLAC, AAC, M4A)</option>
+                <option value="Programs">Programs (EXE, MSI, APK, APPX, BAT)</option>
+                <option value="Video">Video (MP4, MKV, AVI, MOV, WMV, WEBM)</option>
+              </select>
+            </div>
+
+            <div class="form-group">
+              <label id="labelCategoryDir">Default download directory for 'General' category:</label>
+              <div class="input-with-button">
+                <input type="text" id="settingCategoryDir" required>
+                <button type="button" class="btn btn-sm btn-glass" id="btnBrowseCategoryDir">Browse...</button>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label>Temporary Directory (Chunk segments assembly):</label>
+              <div class="input-with-button">
+                <input type="text" id="settingTempDir" required>
+                <button type="button" class="btn btn-sm btn-glass btn-browse-folder" data-target="settingTempDir">Browse...</button>
+              </div>
+              <span class="field-hint">Temporary directory where file segments are stored before assembly.</span>
+            </div>
+
+            <div class="form-row checkboxes-col">
+              <label class="checkbox-row">
+                <input type="checkbox" id="settingAutoCategorize" checked>
+                <span>Automatically sort downloads into subfolders by category (like IDM)</span>
+              </label>
+
+              <label class="checkbox-row">
+                <input type="checkbox" id="settingPromptForSavePath" checked>
+                <span>Prompt for save location on every new download</span>
+              </label>
+
+              <label class="checkbox-row">
+                <input type="checkbox" id="settingRememberLastPath" checked>
+                <span>Remember last selected download directory across downloads</span>
+              </label>
+            </div>
+
+            <!-- All Categories Overview Matrix -->
+            <div class="category-folders-box">
+              <span class="category-box-title">All Categories Directory Matrix</span>
+              <div class="cat-grid">
+                <div class="cat-row">
+                  <span class="cat-name">📦 Compressed (ZIP, ISO, RAR)</span>
+                  <input type="text" id="catCompressed" class="cat-input">
+                  <button type="button" class="btn btn-xs btn-glass btn-browse-folder" data-target="catCompressed">Browse</button>
+                </div>
+                <div class="cat-row">
+                  <span class="cat-name">💻 Programs (EXE, MSI, APK)</span>
+                  <input type="text" id="catPrograms" class="cat-input">
+                  <button type="button" class="btn btn-xs btn-glass btn-browse-folder" data-target="catPrograms">Browse</button>
+                </div>
+                <div class="cat-row">
+                  <span class="cat-name">🎬 Video (MP4, MKV, AVI)</span>
+                  <input type="text" id="catVideo" class="cat-input">
+                  <button type="button" class="btn btn-xs btn-glass btn-browse-folder" data-target="catVideo">Browse</button>
+                </div>
+                <div class="cat-row">
+                  <span class="cat-name">🎵 Music (MP3, FLAC, WAV)</span>
+                  <input type="text" id="catMusic" class="cat-input">
+                  <button type="button" class="btn btn-xs btn-glass btn-browse-folder" data-target="catMusic">Browse</button>
+                </div>
+                <div class="cat-row">
+                  <span class="cat-name">📄 Documents (PDF, DOCX)</span>
+                  <input type="text" id="catDocuments" class="cat-input">
+                  <button type="button" class="btn btn-xs btn-glass btn-browse-folder" data-target="catDocuments">Browse</button>
+                </div>
+                <div class="cat-row">
+                  <span class="cat-name">📁 General (Other files)</span>
+                  <input type="text" id="catGeneral" class="cat-input">
+                  <button type="button" class="btn btn-xs btn-glass btn-browse-folder" data-target="catGeneral">Browse</button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 2: Connection & Speed (IDM Standard) -->
+          <div id="tabConnection" class="tab-pane">
+            <div class="form-row">
+              <div class="form-group col">
+                <label>Connection Type / Speed</label>
+                <select id="settingConnectionType">
+                  <option value="Direct High Speed">High speed: Direct / Wi-Fi 6/7 / 10G LAN</option>
+                  <option value="Cable DSL">Medium speed: Cable / DSL (50-200 Mbps)</option>
+                  <option value="Low Speed">Low speed: Mobile / Dial-up</option>
+                </select>
+              </div>
+
+              <div class="form-group col">
+                <label>Default Connections Per Adapter</label>
+                <select id="settingConnectionsPerAdapter">
+                  <option value="1">1 Connection (Conservative)</option>
+                  <option value="2">2 Connections (Balanced)</option>
+                  <option value="4" selected>4 Connections (High Performance)</option>
+                  <option value="8">8 Connections (Ultra Turbo)</option>
+                  <option value="16">16 Connections (Extreme Max)</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group col">
+                <label>Hardware Channel Bonding Strategy</label>
+                <select id="settingBondingStrategy">
+                  <option value="dynamic_bonded">Aggressive Dynamic Bonding (All adapters concurrent)</option>
+                  <option value="round_robin">Balanced Round-Robin Stream Rotation</option>
+                  <option value="primary_failover">Primary Adapter with Redundant Auto-Failover</option>
+                </select>
+              </div>
+
+              <div class="form-group col">
+                <label>Max Automatic Retry Attempts</label>
+                <select id="settingRetryAttempts">
+                  <option value="1">1 Attempt</option>
+                  <option value="3">3 Attempts</option>
+                  <option value="5" selected>5 Attempts (Recommended)</option>
+                  <option value="10">10 Attempts</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="form-group">
+              <label class="checkbox-row">
+                <input type="checkbox" id="settingSpeedLimitEnabled">
+                <span>Enable Download Speed Limiter</span>
+              </label>
+              <div class="input-with-addon" style="margin-top: 8px;">
+                <input type="number" id="settingSpeedLimit" min="0" step="100" placeholder="0 (No limit / Max Speed)">
+                <span class="addon-text">KB/s</span>
+              </div>
+              <span class="field-hint">Set to 0 to download at maximum hardware speed.</span>
+            </div>
+          </div>
+
+          <!-- Tab 3: File Types (Complete List) -->
+          <div id="tabFileTypes" class="tab-pane">
+            <div class="form-group">
+              <label>Automatically Start Downloading the Following File Types (Extensions):</label>
+              <textarea id="settingFileTypes" rows="4"></textarea>
+              <span class="field-hint">Official extension list. Turbo Download Manager will automatically intercept downloads matching these extensions.</span>
+            </div>
+
+            <div class="form-group">
+              <label>Don't Start Downloading Automatically From the Following Addresses (Exceptions):</label>
+              <textarea id="settingExceptionsList" rows="3" placeholder="*.update.microsoft.com&#10;*.windowsupdate.com"></textarea>
+              <span class="field-hint">One URL pattern per line. Turbo Download Manager will bypass these domains.</span>
+            </div>
+          </div>
+
+          <!-- Tab 4: General & Browser Integration -->
+          <div id="tabGeneral" class="tab-pane">
+            <div class="form-row checkboxes-col">
+              <label class="checkbox-row">
+                <input type="checkbox" id="settingLaunchOnStartup" checked>
+                <span>Launch Turbo Download Manager on Windows startup</span>
+              </label>
+
+              <label class="checkbox-row">
+                <input type="checkbox" id="settingMonitorClipboard" checked>
+                <span>Monitor Windows clipboard for downloadable URLs</span>
+              </label>
+
+              <label class="checkbox-row">
+                <input type="checkbox" id="settingAutoStartFromClipboard">
+                <span>Automatically start downloads when copied to clipboard</span>
+              </label>
+            </div>
+
+            <div class="category-folders-box">
+              <span class="category-box-title">Browser Integration</span>
+              <div class="browser-grid">
+                <label class="checkbox-row"><input type="checkbox" id="intChrome" checked> <span>Google Chrome</span></label>
+                <label class="checkbox-row"><input type="checkbox" id="intEdge" checked> <span>Microsoft Edge</span></label>
+                <label class="checkbox-row"><input type="checkbox" id="intFirefox" checked> <span>Mozilla Firefox</span></label>
+                <label class="checkbox-row"><input type="checkbox" id="intBrave" checked> <span>Brave Browser</span></label>
+                <label class="checkbox-row"><input type="checkbox" id="intOpera" checked> <span>Opera</span></label>
+                <label class="checkbox-row"><input type="checkbox" id="intVivaldi" checked> <span>Vivaldi</span></label>
+              </div>
+            </div>
+
+            <div class="form-row">
+              <div class="form-group col">
+                <label>Key to Force Downloading with Turbo Download Manager:</label>
+                <select id="settingKeyForce">
+                  <option value="Alt" selected>Hold Alt Key</option>
+                  <option value="Shift">Hold Shift Key</option>
+                  <option value="Ctrl">Hold Ctrl Key</option>
+                </select>
+              </div>
+
+              <div class="form-group col">
+                <label>Key to Prevent Downloading with Turbo Download Manager:</label>
+                <select id="settingKeyPrevent">
+                  <option value="Ctrl" selected>Hold Ctrl Key</option>
+                  <option value="Alt">Hold Alt Key</option>
+                  <option value="Shift">Hold Shift Key</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 5: Downloads & Dialogs -->
+          <div id="tabDownloads" class="tab-pane">
+            <div class="form-row checkboxes-col">
+              <label class="checkbox-row">
+                <input type="checkbox" id="settingShowStartDialog" checked>
+                <span>Show "Start Download" dialog before beginning download</span>
+              </label>
+
+              <label class="checkbox-row">
+                <input type="checkbox" id="settingShowCompleteDialog" checked>
+                <span>Show "Download Complete" dialog when download finishes</span>
+              </label>
+
+              <label class="checkbox-row">
+                <input type="checkbox" id="settingShowProgressWindow" checked>
+                <span>Show real-time segment progress visualizer</span>
+              </label>
+
+              <label class="checkbox-row">
+                <input type="checkbox" id="settingPlaySoundOnComplete" checked>
+                <span>Play sound on download complete</span>
+              </label>
+
+              <label class="checkbox-row">
+                <input type="checkbox" id="settingPlaySoundOnError" checked>
+                <span>Play sound on download error</span>
+              </label>
+            </div>
+
+            <div class="form-group">
+              <label>Action on Download Completion:</label>
+              <select id="settingPostDownloadAction">
+                <option value="none">Do nothing</option>
+                <option value="open_folder">Open destination folder in Explorer</option>
+                <option value="open_file">Open downloaded file immediately</option>
+                <option value="shutdown">Shut down computer when all downloads finish</option>
+              </select>
+            </div>
+
+            <!-- Antivirus Virus Scanner (IDM Standard) -->
+            <div class="category-folders-box">
+              <span class="category-box-title">Antivirus Virus Scanner</span>
+              <label class="checkbox-row" style="margin-bottom: 8px;">
+                <input type="checkbox" id="settingVirusScanEnabled">
+                <span>Scan downloaded files for viruses upon completion</span>
+              </label>
+              <div class="form-group">
+                <label>Virus Scanner Executable (.exe):</label>
+                <div class="input-with-button">
+                  <input type="text" id="settingVirusScannerPath" placeholder="C:\Program Files\Windows Defender\MpCmdRun.exe">
+                  <button type="button" class="btn btn-sm btn-glass" id="btnBrowseVirusScanner">Browse...</button>
+                </div>
+              </div>
+              <div class="form-group">
+                <label>Scanner Command Line Arguments:</label>
+                <input type="text" id="settingVirusScannerArgs" placeholder='-Scan -ScanType 3 -File "%file%"'>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 6: Proxy / Socks (IDM Standard) -->
+          <div id="tabProxy" class="tab-pane">
+            <div class="form-group">
+              <label>Proxy Configuration:</label>
+              <select id="settingProxyMode">
+                <option value="system" selected>Use Windows / System Proxy Settings</option>
+                <option value="none">Direct Connection (No Proxy)</option>
+                <option value="manual">Manual Proxy Configuration</option>
+              </select>
+            </div>
+
+            <div id="manualProxyFields" class="category-folders-box">
+              <span class="category-box-title">Manual Proxy Servers</span>
+              <div class="form-row">
+                <div class="form-group col">
+                  <label>HTTP Proxy Host:</label>
+                  <input type="text" id="settingProxyHttpHost" placeholder="proxy.example.com">
+                </div>
+                <div class="form-group col">
+                  <label>Port:</label>
+                  <input type="number" id="settingProxyHttpPort" placeholder="8080">
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group col">
+                  <label>SOCKS5 Host:</label>
+                  <input type="text" id="settingProxySocksHost" placeholder="socks.example.com">
+                </div>
+                <div class="form-group col">
+                  <label>Port:</label>
+                  <input type="number" id="settingProxySocksPort" placeholder="1080">
+                </div>
+              </div>
+
+              <div class="form-row">
+                <div class="form-group col">
+                  <label>Proxy Username:</label>
+                  <input type="text" id="settingProxyUser" placeholder="Optional">
+                </div>
+                <div class="form-group col">
+                  <label>Proxy Password:</label>
+                  <input type="password" id="settingProxyPass" placeholder="Optional">
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Tab 7: Site Logins (IDM Standard) -->
+          <div id="tabSiteLogins" class="tab-pane">
+            <span class="category-box-title">Stored Passwords for Download Sites</span>
+            <p class="field-hint" style="margin-bottom: 12px;">
+              Manage stored credentials for premium file hosters and password-protected HTTP/FTP servers.
+            </p>
+
+            <table class="history-table logins-table">
+              <thead>
+                <tr>
+                  <th>Site Pattern</th>
+                  <th>Username</th>
+                  <th>Password</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody id="siteLoginsList">
+                <!-- Dynamically populated -->
+              </tbody>
+            </table>
+
+            <div class="cat-row" style="margin-top: 12px;">
+              <input type="text" id="newLoginPattern" placeholder="*.example.com" class="cat-input">
+              <input type="text" id="newLoginUser" placeholder="Username" class="cat-input">
+              <input type="password" id="newLoginPass" placeholder="Password" class="cat-input">
+              <button type="button" id="btnAddSiteLogin" class="btn btn-sm btn-accent">Add Login</button>
+            </div>
+          </div>
+
+          <!-- Tab 8: Network & User-Agent -->
+          <div id="tabNetwork" class="tab-pane">
+            <div class="form-group">
+              <label>Custom User-Agent Header:</label>
+              <textarea id="settingUserAgent" rows="2" placeholder="Mozilla/5.0 ..."></textarea>
+              <span class="field-hint">Sent with HTTP requests to bypass servers that block automated download tools.</span>
+            </div>
+
+            <div class="form-row checkboxes-col">
+              <label class="checkbox-row">
+                <input type="checkbox" id="settingAutoReconnect" checked>
+                <span>Automatically reconnect if network connection is lost</span>
+              </label>
+            </div>
+
+            <div class="extension-status-card">
+              <div class="ext-status-row">
+                <span class="ext-icon">🧩</span>
+                <div>
+                  <strong>Chrome & Edge Integration Extension</strong>
+                  <p>Turbo Download Manager Extension is located in: <code>D:\Projects\REA\extension</code></p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="modal-footer">
+            <button type="button" id="btnCancelSettings" class="btn btn-glass">Cancel</button>
+            <button type="submit" id="btnSaveSettings" class="btn btn-primary">
+              💾 Save Settings
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

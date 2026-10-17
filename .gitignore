@@ -1,0 +1,56 @@
+# Node & Package Managers
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Packaged Applications & Binaries (Over 150MB+ - Build on target system)
+dist/
+out/
+build/
+bin/
+*.exe
+*.msi
+*.zip
+*.tar.gz
+
+# Local User Downloads & Runtime State
+downloads/
+downloads-history.json
+settings.json
+*-Temp/
+*.tmp
+*.bin
+*.part
+*.crdownload
+
+# Logs & Runtime Diagnostics
+*.log
+logs/
+
+# Environment Variables & Secrets
+.env
+.env.*
+!.env.example
+
+# OS Generated Files
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+.DS_Store
+
+# Editor & IDE Directories
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*.swo
+
+# Agentic / AI IDE Artifacts
+.gemini/
+.agents/
+.codex/
+graphify-out/
