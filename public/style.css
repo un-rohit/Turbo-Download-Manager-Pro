@@ -304,99 +304,175 @@ body {
 /* Adapter Matrix Grid */
 .adapter-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+  gap: 10px;
 }
 
-.adapter-card {
+.adapter-compact-card {
   background: var(--bg-card);
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius-md);
-  padding: 16px 20px;
+  padding: 10px 14px;
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  transition: all 0.25s ease;
+  transition: all 0.2s ease;
   position: relative;
   overflow: hidden;
 }
 
-.adapter-card.active-bonded {
+.adapter-compact-card.active-bonded {
   border-color: rgba(0, 242, 254, 0.35);
-  box-shadow: 0 4px 20px rgba(0, 242, 254, 0.08);
+  box-shadow: 0 2px 12px rgba(0, 242, 254, 0.06);
 }
 
-.adapter-card.active-bonded::before {
+.adapter-compact-card.active-bonded::before {
   content: '';
   position: absolute;
   top: 0;
   left: 0;
-  right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--accent-cyan), var(--accent-emerald));
+  bottom: 0;
+  width: 3px;
+  background: linear-gradient(180deg, var(--accent-cyan), var(--accent-emerald));
 }
 
-.adapter-top {
-  display: flex;
-  justify-content: space-between;
-  align-items: flex-start;
+.adapter-compact-card.adapter-paused {
+  border-color: rgba(255, 184, 0, 0.3);
+  opacity: 0.85;
 }
 
-.adapter-meta {
+.adapter-compact-card.adapter-paused::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  width: 3px;
+  background: #ffb800;
+}
+
+.adapter-left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
+  min-width: 0;
 }
 
-.adapter-icon-box {
-  width: 40px;
-  height: 40px;
+.adapter-icon-box-compact {
+  width: 34px;
+  height: 34px;
   border-radius: var(--radius-sm);
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.04);
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.3rem;
+  font-size: 1.15rem;
+  flex-shrink: 0;
+}
+
+.adapter-info-compact {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.adapter-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .adapter-name-text {
-  font-size: 0.95rem;
+  font-size: 0.88rem;
   font-weight: 700;
+  color: #f8fafc;
+  white-space: nowrap;
+}
+
+.status-indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.status-indicator.online {
+  background: #00f5a0;
+  box-shadow: 0 0 6px #00f5a0;
+}
+
+.status-indicator.paused {
+  background: #ffb800;
+  box-shadow: 0 0 6px #ffb800;
+}
+
+.status-indicator.offline {
+  background: #ff3366;
+}
+
+.paused-tag {
+  font-size: 0.65rem;
+  font-weight: 700;
+  color: #ffb800;
+  padding: 1px 4px;
+  background: rgba(255, 184, 0, 0.12);
+  border-radius: 3px;
+}
+
+.adapter-sub-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .adapter-type-pill {
-  font-size: 0.7rem;
+  font-size: 0.68rem;
   color: var(--text-faint);
+  white-space: nowrap;
 }
 
-.adapter-stats {
+.adapter-right {
   display: flex;
-  justify-content: space-between;
-  padding-top: 8px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
 }
 
-.adapter-stat-item {
-  display: flex;
-  flex-direction: column;
+.adapter-speed-col {
+  text-align: right;
+  min-width: 65px;
 }
 
-.adapter-stat-label {
-  font-size: 0.65rem;
-  color: var(--text-faint);
-  font-weight: 600;
-}
-
-.adapter-stat-val {
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--text-main);
-  margin-top: 2px;
-}
-
-.adapter-stat-val.live-speed {
+.adapter-live-speed {
+  font-size: 0.82rem;
+  font-weight: 700;
   color: var(--accent-emerald);
 }
+
+.adapter-compact-card.adapter-paused .adapter-live-speed {
+  color: #ffb800;
+}
+
+.adapter-btn-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-icon-test {
+  padding: 3px 8px;
+  font-size: 0.72rem;
+}
+
+.compact-badge {
+  font-size: 0.65rem !important;
+  padding: 1px 6px !important;
+  border-radius: 3px !important;
+}
+
 
 /* Active Downloads */
 .downloads-container {

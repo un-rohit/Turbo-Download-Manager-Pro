@@ -76,51 +76,43 @@ function renderAdapters() {
     const isSelected = selectedInterfaces.has(iface.address);
     const color = INTERFACE_COLORS[index % INTERFACE_COLORS.length];
     const safeId = iface.address.replace(/[^a-zA-Z0-9]/g, '_');
+    const statusClass = !isSelected ? 'paused' : (iface.online ? 'online' : 'offline');
 
     return `
-      <div class="adapter-card ${isSelected ? 'active-bonded' : 'adapter-paused'}" id="adapter-${safeId}">
-        <div class="adapter-top">
-          <div class="adapter-meta">
-            <div class="adapter-icon-box" style="color: ${isSelected ? color : '#64748b'}">
-              ${iface.icon}
+      <div class="adapter-compact-card ${isSelected ? 'active-bonded' : 'adapter-paused'}" id="adapter-${safeId}">
+        <div class="adapter-left">
+          <div class="adapter-icon-box-compact" style="color: ${isSelected ? color : '#64748b'}">
+            ${iface.icon}
+          </div>
+          <div class="adapter-info-compact">
+            <div class="adapter-name-row">
+              <span class="adapter-name-text">${iface.name}</span>
+              <span class="status-indicator ${statusClass}" title="${!isSelected ? 'Paused' : (iface.online ? 'Online' : 'No Route')}"></span>
+              ${!isSelected ? '<span class="paused-tag">PAUSED</span>' : ''}
             </div>
-            <div>
-              <div class="adapter-name-text">${iface.name} ${isSelected ? '' : '<span style="color:#ffb800;font-size:0.75rem;font-weight:700;">(PAUSED)</span>'}</div>
-              <div class="adapter-type-pill">${iface.label}</div>
+            <div class="adapter-sub-row">
+              <span class="adapter-type-pill">${iface.label}</span>
+              <span id="speedtest-badge-${safeId}" class="speedtest-result-badge compact-badge" style="display: none;"></span>
             </div>
-          </div>
-          <label class="switch-wrap" title="${isSelected ? 'Click to Pause this adapter from downloads' : 'Click to Resume this adapter'}">
-            <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleAdapter('${iface.address}')">
-          </label>
-        </div>
-
-        <div class="adapter-stats">
-          <div class="adapter-stat-item">
-            <span class="adapter-stat-label">IPv4 ADDRESS</span>
-            <span class="adapter-stat-val mono">${iface.address}</span>
-          </div>
-
-          <div class="adapter-stat-item">
-            <span class="adapter-stat-label">STATUS</span>
-            <span class="adapter-stat-val" style="color: ${!isSelected ? '#ffb800' : (iface.online ? '#00f5a0' : '#ff3366')}">
-              ${!isSelected ? '⏸ PAUSED' : (iface.online ? '● ONLINE' : '○ NO ROUTE')}
-            </span>
-          </div>
-
-          <div class="adapter-stat-item">
-            <span class="adapter-stat-label">LIVE SPEED</span>
-            <span class="adapter-stat-val mono live-speed" id="speed-${safeId}">${!isSelected ? 'PAUSED' : '0 KB/s'}</span>
           </div>
         </div>
 
-        <div class="adapter-speedtest-row">
-          <span id="speedtest-badge-${safeId}" class="speedtest-result-badge" style="display: none;"></span>
-          <button type="button" class="btn btn-xs ${isSelected ? 'btn-pause-device' : 'btn-resume-device'}" onclick="toggleAdapter('${iface.address}')" title="${isSelected ? 'Pause adapter from downloads — remaining adapters will pick up its load' : 'Resume adapter and bond with downloads'}">
-            ${isSelected ? '⏸ Pause Adapter' : '▶ Resume Adapter'}
-          </button>
-          <button type="button" class="btn btn-xs btn-glass" onclick="testSingleAdapterSpeed('${iface.address}')" ${!iface.online ? 'disabled title="Adapter is offline"' : 'title="Benchmark download speed on this adapter"'}>
-            ⚡ Test Speed
-          </button>
+        <div class="adapter-right">
+          <div class="adapter-speed-col">
+            <span class="adapter-live-speed mono" id="speed-${safeId}">${!isSelected ? 'PAUSED' : '0 B/s'}</span>
+          </div>
+
+          <div class="adapter-btn-group">
+            <button type="button" class="btn btn-xs ${isSelected ? 'btn-pause-device' : 'btn-resume-device'}" onclick="toggleAdapter('${iface.address}')" title="${isSelected ? 'Pause adapter from downloads' : 'Resume adapter in bonding'}">
+              ${isSelected ? '⏸ Pause' : '▶ Resume'}
+            </button>
+            <button type="button" class="btn btn-xs btn-glass btn-icon-test" onclick="testSingleAdapterSpeed('${iface.address}')" ${!iface.online ? 'disabled title="Adapter is offline"' : 'title="Benchmark download speed"'}">
+              ⚡ Test
+            </button>
+            <label class="switch-wrap switch-sm" title="${isSelected ? 'Channel bonding enabled' : 'Paused'}">
+              <input type="checkbox" ${isSelected ? 'checked' : ''} onchange="toggleAdapter('${iface.address}')">
+            </label>
+          </div>
         </div>
       </div>
     `;
@@ -1314,10 +1306,10 @@ class QuantumEnergyFlowCanvas {
     // Sources mapping
     const sources = ifacesToDraw.map((iface, index) => {
       const srcY = ifaceCount === 1 ? h / 2 : topPadding + (step * index);
-      const isPaused = !selectedInterfaces.has(iface.address);
+      const isPaused = selectedInterfaces.size > 0 ? !selectedInterfaces.has(iface.address) : !iface.online;
       const speed = isPaused ? 0 : (this.isSurgeDemo ? 22 * 1024 * 1024 : (this.adapterSpeeds[iface.address] || 0));
-      const color = isPaused ? '#ffb800' : INTERFACE_COLORS[index % INTERFACE_COLORS.length];
-      return { iface, index, x: srcX, y: srcY, color, speed, isPaused };
+      const color = isPaused ? '#64748b' : INTERFACE_COLORS[index % INTERFACE_COLORS.length];
+      return { iface, index, x: 220, y: srcY, color, speed, isPaused };
     });
 
     // 1. Draw conduit lines
@@ -1398,7 +1390,7 @@ class QuantumEnergyFlowCanvas {
       ctx.fill();
     }
 
-    // 3. Draw Left Adapter Nodes with interactive Pause/Resume buttons
+    // 3. Draw Left Adapter Nodes (Clean, minimalistic, NO text overlap)
     sources.forEach(src => {
       const isHovered = this.hoveredAddress === src.iface.address;
       const hasTraffic = !src.isPaused && (src.speed > 0 || this.isSurgeDemo);
@@ -1408,8 +1400,8 @@ class QuantumEnergyFlowCanvas {
         address: src.iface.address,
         x1: 12,
         x2: src.x + 22,
-        y1: src.y - 24,
-        y2: src.y + 24
+        y1: src.y - 22,
+        y2: src.y + 22
       });
 
       // Hover background highlight
@@ -1417,56 +1409,32 @@ class QuantumEnergyFlowCanvas {
         ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
         ctx.beginPath();
         if (ctx.roundRect) {
-          ctx.roundRect(12, src.y - 20, src.x + 8, 40, 8);
+          ctx.roundRect(12, src.y - 18, src.x - 2, 36, 6);
         } else {
-          ctx.rect(12, src.y - 20, src.x + 8, 40);
+          ctx.rect(12, src.y - 18, src.x - 2, 36);
         }
         ctx.fill();
       }
 
       // Draw Adapter Label
       const rawName = `${src.iface.icon || '📶'} ${src.iface.name || 'Adapter'}`;
-      const displayName = rawName.length > 18 ? rawName.substring(0, 16) + '...' : rawName;
+      const displayName = rawName.length > 20 ? rawName.substring(0, 18) + '...' : rawName;
 
       ctx.font = '600 12px "Plus Jakarta Sans", sans-serif';
       ctx.fillStyle = src.isPaused ? '#ffb800' : '#f8fafc';
       ctx.textAlign = 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(`${displayName}${src.isPaused ? ' (PAUSED)' : ''}`, 20, src.y - 8);
+      ctx.fillText(displayName, 24, src.y - 8);
 
-      // Speed / Status line
+      // Speed / Status line - short, clean, zero overlap
       ctx.font = '700 11px "JetBrains Mono", monospace';
       if (src.isPaused) {
         ctx.fillStyle = '#ffb800';
-        ctx.fillText('0 B/s (ROUTED TO OTHERS)', 20, src.y + 10);
+        ctx.fillText('Paused', 24, src.y + 9);
       } else {
         ctx.fillStyle = hasTraffic ? '#00f5a0' : '#64748b';
-        ctx.fillText(formatSpeed(src.speed), 20, src.y + 10);
+        ctx.fillText(formatSpeed(src.speed), 24, src.y + 9);
       }
-
-      // Interactive Pause/Resume Button Badge right on the canvas!
-      const btnW = 54;
-      const btnH = 20;
-      const btnX = src.x - btnW - 14;
-      const btnY = src.y - btnH / 2;
-
-      ctx.beginPath();
-      if (ctx.roundRect) {
-        ctx.roundRect(btnX, btnY, btnW, btnH, 4);
-      } else {
-        ctx.rect(btnX, btnY, btnW, btnH);
-      }
-      ctx.fillStyle = src.isPaused ? 'rgba(0, 245, 160, 0.2)' : 'rgba(255, 184, 0, 0.2)';
-      ctx.strokeStyle = src.isPaused ? '#00f5a0' : 'rgba(255, 184, 0, 0.6)';
-      ctx.lineWidth = 1;
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.font = '700 9px "Plus Jakarta Sans", sans-serif';
-      ctx.fillStyle = src.isPaused ? '#00f5a0' : '#ffb800';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(src.isPaused ? '▶ RESUME' : '⏸ PAUSE', btnX + btnW / 2, btnY + btnH / 2);
 
       // Node circle at x = src.x
       ctx.beginPath();
@@ -1480,7 +1448,6 @@ class QuantumEnergyFlowCanvas {
       ctx.beginPath();
       ctx.arc(src.x, src.y, 5, 0, Math.PI * 2);
       ctx.fillStyle = src.isPaused ? '#ffb800' : (hasTraffic ? src.color : '#64748b');
-      ctx.fill();
     });
 
     // 4. Draw Right PC Storage Node
