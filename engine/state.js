@@ -73,6 +73,8 @@ class DownloadManager {
           outputPath: snapshot.outputPath,
           contentLength: snapshot.contentLength,
           downloadedBytes: snapshot.downloadedBytes,
+          supportsRanges: snapshot.supportsRanges ?? null,
+          fallbackReason: snapshot.fallbackReason || null,
           status: snapshot.status,
           error: snapshot.error || null,
           completedAt: new Date().toISOString()

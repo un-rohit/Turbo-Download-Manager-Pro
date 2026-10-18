@@ -4,15 +4,22 @@ let selectedInterfaces = new Set();
 let activeDownloads = new Map();
 let downloadHistory = [];
 let probedData = null;
+let probedInputUrl = '';
+let probedAt = 0;
+const selectedHistoryIds = new Set();
+let historyBulkActionInProgress = false;
 const speedTestResults = new Map();
 const downloadMenuOrigins = new WeakMap();
 const expandedDownloadDetails = new Set();
 let adapterScanInitialized = false;
 let adapterScanInProgress = false;
 let adapterScanTimer = null;
+let speedTestInProgress = false;
+let activeSpeedTestId = null;
 const promptedAdapterAddresses = new Set();
 const pendingAdapterPrompts = [];
 let activeAdapterPrompt = null;
+let appDialogQueue = Promise.resolve();
 
 // Color Palette for Segment Visualization (per interface)
 const INTERFACE_COLORS = [
@@ -45,6 +52,102 @@ function escapeHtml(value) {
     '"': '&quot;',
     "'": '&#39;'
   })[character]);
+}
+
+function describeDownloadError(error) {
+  const detail = String(error || '').trim();
+  if (!detail) return 'No data was saved. Check the download link and try again.';
+  if (/HTTP\s+(401|403)\b/i.test(detail)) return 'The server denied access. Sign in or get a fresh download link, then retry.';
+  if (/HTTP\s+(404|410)\b/i.test(detail)) return 'The file is no longer available at this link. Get a new download link.';
+  if (/HTTP\s+429\b/i.test(detail)) return 'The server is receiving too many requests. Wait a little, then retry.';
+  if (/HTTP\s+5\d\d\b/i.test(detail)) return 'The file host had a server error. Wait a little, then retry.';
+  if (/does not support byte-range|not support.*range|cannot resume/i.test(detail)) return 'This host cannot resume partial downloads. Retrying will start from the beginning.';
+  if (/could not write|enospc|disk full|permission denied|access is denied/i.test(detail)) return 'Turbo could not save the file. Check the destination folder and available disk space.';
+  if (/timed out|timeout|connection interrupted|socket|network route|closed the connection|ended early|incomplete|reset/i.test(detail)) return 'The connection stopped before the file finished. Check your internet connection, then retry.';
+  if (/text\/html|web page|html document|browser challenge/i.test(detail)) return 'The link returned a web page instead of the file. Open the page and copy its direct download link.';
+  return detail;
+}
+
+function showAppDialog({ kind = 'alert', title = '', message = '', value = '', confirmLabel = '', danger = false } = {}) {
+  const dialogRoot = document.getElementById('appDialogBackdrop');
+  if (!dialogRoot) {
+    console.error('App dialog markup is unavailable.');
+    return Promise.resolve(kind === 'confirm' ? false : kind === 'prompt' ? null : undefined);
+  }
+
+  const runDialog = () => new Promise(resolve => {
+    const titleNode = document.getElementById('appDialogTitle');
+    const messageNode = document.getElementById('appDialogMessage');
+    const input = document.getElementById('appDialogInput');
+    const cancelButton = document.getElementById('appDialogCancel');
+    const confirmButton = document.getElementById('appDialogConfirm');
+    const previousFocus = document.activeElement;
+    const hasCancel = kind !== 'alert';
+    titleNode.textContent = title || (kind === 'alert' ? 'Notice' : kind === 'prompt' ? 'Enter a value' : 'Please confirm');
+    messageNode.textContent = message;
+    input.hidden = kind !== 'prompt';
+    input.value = value;
+    cancelButton.hidden = !hasCancel;
+    cancelButton.textContent = 'Cancel';
+    confirmButton.textContent = confirmLabel || (kind === 'alert' ? 'OK' : kind === 'prompt' ? 'Save' : 'Continue');
+    confirmButton.classList.toggle('is-danger', danger);
+    dialogRoot.hidden = false;
+    document.body.classList.add('has-app-dialog');
+
+    let settled = false;
+    const finish = result => {
+      if (settled) return;
+      settled = true;
+      dialogRoot.hidden = true;
+      document.body.classList.remove('has-app-dialog');
+      document.removeEventListener('keydown', onKeyDown, true);
+      dialogRoot.removeEventListener('click', onBackdropClick);
+      confirmButton.removeEventListener('click', onConfirm);
+      cancelButton.removeEventListener('click', onCancel);
+      if (previousFocus?.isConnected) previousFocus.focus();
+      resolve(result);
+    };
+    const onConfirm = () => finish(kind === 'prompt' ? input.value : true);
+    const onCancel = () => finish(kind === 'confirm' ? false : null);
+    const onBackdropClick = event => { if (event.target === dialogRoot) onCancel(); };
+    const onKeyDown = event => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onCancel();
+      } else if (event.key === 'Enter' && event.target !== cancelButton) {
+        event.preventDefault();
+        onConfirm();
+      } else if (event.key === 'Tab') {
+        const focusable = [input, cancelButton, confirmButton].filter(el => !el.hidden && !el.disabled);
+        const first = focusable[0];
+        const last = focusable[focusable.length - 1];
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+      }
+    };
+
+    confirmButton.addEventListener('click', onConfirm);
+    cancelButton.addEventListener('click', onCancel);
+    dialogRoot.addEventListener('click', onBackdropClick);
+    document.addEventListener('keydown', onKeyDown, true);
+    (kind === 'prompt' ? input : hasCancel ? cancelButton : confirmButton).focus();
+  });
+
+  const nextDialog = appDialogQueue.then(runDialog, runDialog);
+  appDialogQueue = nextDialog.then(() => undefined, () => undefined);
+  return nextDialog;
+}
+
+function appAlert(message, options = {}) {
+  return showAppDialog({ ...options, kind: 'alert', message });
+}
+
+function appConfirm(message, options = {}) {
+  return showAppDialog({ ...options, kind: 'confirm', message });
+}
+
+function appPrompt(message, value = '', options = {}) {
+  return showAppDialog({ ...options, kind: 'prompt', message, value });
 }
 
 function formatEta(seconds) {
@@ -188,7 +291,7 @@ function renderAdapters() {
             <button type="button" class="btn btn-xs ${isSelected ? 'btn-pause-device' : 'btn-resume-device'}" onclick="toggleAdapter('${iface.address}')" title="${isSelected ? 'Pause adapter from downloads' : 'Resume adapter in bonding'}">
               ${isSelected ? '⏸ Pause' : '▶ Resume'}
             </button>
-            <button type="button" class="btn btn-xs btn-glass btn-icon-test" onclick="testSingleAdapterSpeed('${iface.address}')" title="Test adapter speed (5s)">
+            <button type="button" class="btn btn-xs btn-glass btn-icon-test" onclick="testSingleAdapterSpeed('${iface.address}')" title="Test adapter speed (5s)" ${speedTestInProgress ? 'disabled' : ''}>
               ⚡ Test
             </button>
             <label class="switch-wrap switch-sm" title="${isSelected ? 'Channel bonding enabled' : 'Paused'}">
@@ -292,10 +395,10 @@ function initSSE() {
   es.addEventListener('speedtest_progress', (e) => {
     try {
       const prog = JSON.parse(e.data);
-      if (prog.localAddress) {
+      if (prog.testId === activeSpeedTestId && Number(prog.remainingSec) > 0 && prog.localAddress) {
         const safeId = prog.localAddress.replace(/[^a-zA-Z0-9]/g, '_');
         const badge = document.getElementById(`speedtest-badge-${safeId}`);
-        if (badge) {
+        if (badge?.classList.contains('testing')) {
           badge.style.display = 'inline-block';
           const rem = prog.remainingSec !== undefined ? `[${prog.remainingSec}s] ` : '';
           badge.textContent = `${rem}${prog.currentMbps} Mbps (${prog.ping}ms)`;
@@ -473,6 +576,14 @@ function renderActiveDownloads() {
 
     const connectionCount = (item.interfaces || []).length;
     const segmentCount = (item.segments || []).length;
+    const rangeWarning = item.supportsRanges === false
+      ? '<div class="task-range-warning">⚠ Single connection: this host does not support byte ranges. Pause/resume or interruption restarts from 0.</div>'
+      : (item.forceSingleConnection
+        ? '<div class="task-range-warning">⚠ Segmented transfer failed. Continuing carefully on one connection.</div>'
+        : '');
+    const actionError = item.actionError
+      ? `<div class="task-action-error">${escapeHtml(item.actionError)}</div>`
+      : '';
 
     return `
       <article class="task-card task-card-compact ${isPaused ? 'task-card-paused' : ''}">
@@ -512,6 +623,8 @@ function renderActiveDownloads() {
           <div class="progress-bar-bg">
             <div class="progress-bar-fill" style="width: ${percent}%; ${isPaused ? 'background: #ffb800;' : ''}"></div>
           </div>
+          ${rangeWarning}
+          ${actionError}
         </div>
 
         <div class="task-details ${showDetails ? 'is-open' : ''}">
@@ -541,42 +654,53 @@ window.toggleDownloadDetails = function(id) {
 
 // 4. Download Controls
 window.pauseDownload = async function(id) {
-  const item = activeDownloads.get(id);
-  if (item) {
-    item.status = 'paused';
-    item.currentSpeed = 0;
-    if (item.segments) {
-      item.segments.forEach(s => { s.active = false; });
-    }
+  let item = activeDownloads.get(id);
+  try {
+    await postDownloadAction(`/api/downloads/${id}/pause`);
+    item = activeDownloads.get(id) || item;
+    if (item) item.actionError = '';
+  } catch (err) {
+    item = activeDownloads.get(id) || item;
+    if (item) item.actionError = `Could not pause: ${err.message}`;
+    else await appAlert(`Could not pause download: ${err.message}`, { title: 'Pause failed' });
+  } finally {
     renderActiveDownloads();
     updateGlobalSpeed();
-  }
-  try {
-    await fetch(`/api/downloads/${id}/pause`, { method: 'POST' });
-  } catch (err) {
-    console.error('Error pausing download:', err);
   }
 };
 
 window.resumeDownload = async function(id) {
-  const item = activeDownloads.get(id);
+  let item = activeDownloads.get(id);
   if (item) {
-    item.status = 'downloading';
-    renderActiveDownloads();
+    if (item.supportsRanges === false && item.downloadedBytes > 0 && !await appConfirm(
+      'This host does not support byte-range requests. Turbo cannot resume from the saved partial data, so this will restart the file from the beginning. Continue?',
+      { title: 'Resume from the beginning', confirmLabel: 'Restart download' }
+    )) return;
   }
   try {
-    await fetch(`/api/downloads/${id}/resume`, { method: 'POST' });
+    await postDownloadAction(`/api/downloads/${id}/resume`);
+    item = activeDownloads.get(id) || item;
+    if (item) item.actionError = '';
   } catch (err) {
-    console.error('Error resuming download:', err);
+    item = activeDownloads.get(id) || item;
+    if (item) item.actionError = `Could not resume: ${err.message}`;
+    else await appAlert(`Could not resume download: ${err.message}`, { title: 'Resume failed' });
+  } finally {
+    renderActiveDownloads();
+    updateGlobalSpeed();
   }
 };
 
 window.cancelDownload = async function(id) {
-  if (confirm('Are you sure you want to cancel this download?')) {
-    await fetch(`/api/downloads/${id}/cancel`, { method: 'POST' });
-    activeDownloads.delete(id);
-    renderActiveDownloads();
-    updateGlobalSpeed();
+  if (await appConfirm('Are you sure you want to cancel this download?', { title: 'Cancel download', confirmLabel: 'Cancel download', danger: true })) {
+    try {
+      await postDownloadAction(`/api/downloads/${id}/cancel`);
+      activeDownloads.delete(id);
+      renderActiveDownloads();
+      updateGlobalSpeed();
+    } catch (err) {
+      await appAlert(`Could not cancel download: ${err.message}`, { title: 'Cancel failed' });
+    }
   }
 };
 
@@ -653,9 +777,50 @@ async function postDownloadAction(url, body = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body)
   });
-  const data = await response.json();
+  const data = await readApiResponse(response, 'Download action');
   if (!response.ok || data.error) throw new Error(data.error || `Server returned HTTP ${response.status}`);
   return data;
+}
+
+async function readApiResponse(response, action = 'Request') {
+  const body = await response.text();
+  try {
+    return body ? JSON.parse(body) : {};
+  } catch {
+    const contentType = response.headers.get('content-type') || 'unknown content type';
+    throw new Error(`${action} returned an invalid response (HTTP ${response.status}, ${contentType})`);
+  }
+}
+
+function renderProbeFeedback(data, feedback) {
+  if (!feedback) return;
+  const warnings = [];
+  if (data.supportsRanges === false) {
+    warnings.push('This host does not support byte-range requests. Turbo will use one connection; adapter bonding and safe resume are unavailable.');
+  }
+  if (/^text\/html\b/i.test(data.contentType || '') || /\.html?$/i.test(data.filename || '')) {
+    warnings.push('This URL appears to return a web page, not a direct file link.');
+  }
+  if (!Number.isFinite(Number(data.contentLength)) || Number(data.contentLength) <= 0) {
+    warnings.push('The server did not report a file size, so completion cannot be verified reliably.');
+  }
+
+  feedback.classList.toggle('is-warning', warnings.length > 0);
+  feedback.textContent = `Size: ${formatBytes(data.contentLength)} | Range support: ${data.supportsRanges ? 'Yes — segmented and resumable' : 'No — single connection'}${warnings.length ? `\n⚠ ${warnings.join(' ')}` : ''}`;
+}
+
+function getProbeWarnings(data) {
+  const warnings = [];
+  if (data.supportsRanges === false) {
+    warnings.push('This server does not support byte-range requests. Turbo must use one connection, cannot use multiple adapters for this file, and cannot resume a partial file. If interrupted, starting again will begin at 0.');
+  }
+  if (/^text\/html\b/i.test(data.contentType || '') || /\.html?$/i.test(data.filename || '')) {
+    warnings.push('The URL appears to return a web page rather than a direct file. It may be a link-generator page or a browser challenge.');
+  }
+  if (!Number.isFinite(Number(data.contentLength)) || Number(data.contentLength) <= 0) {
+    warnings.push('The server did not report a reliable file size, so Turbo cannot verify that the download is complete.');
+  }
+  return warnings;
 }
 
 function getSelectedDownloadInterfaces() {
@@ -670,7 +835,7 @@ function acceptNewDownload(task) {
 
 window.redownloadHistoryItem = async function(id) {
   const item = downloadHistory.find(entry => entry.id === id);
-  if (!item?.url) return alert('The original download link is not available.');
+  if (!item?.url) return appAlert('The original download link is not available.', { title: 'Cannot download again' });
   try {
     const task = await postDownloadAction('/api/downloads', {
       url: item.url,
@@ -682,40 +847,40 @@ window.redownloadHistoryItem = async function(id) {
     acceptNewDownload(task);
     window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (err) {
-    alert(`Could not restart download: ${err.message}`);
+    await appAlert(`Could not restart download: ${err.message}`, { title: 'Download could not start' });
   }
 };
 
 window.removeHistoryItem = async function(id) {
-  if (!confirm('Remove this item from download history? The downloaded file will stay on your computer.')) return;
+  if (!await appConfirm('Remove this item from download history? The downloaded file will stay on your computer.', { title: 'Remove from history', confirmLabel: 'Remove' })) return;
   try {
     await postDownloadAction(`/api/download-history/${id}/remove`);
     downloadHistory = downloadHistory.filter(item => item.id !== id);
     renderHistory();
   } catch (err) {
-    alert(`Could not remove history item: ${err.message}`);
+    await appAlert(`Could not remove history item: ${err.message}`, { title: 'Could not remove item' });
   }
 };
 
 window.deleteHistoryFile = async function(id) {
   const item = downloadHistory.find(entry => entry.id === id);
-  if (!confirm(`Permanently delete '${item?.filename || 'this file'}' from your computer and remove it from history?`)) return;
+  if (!await appConfirm(`Permanently delete '${item?.filename || 'this file'}' from your computer and remove it from history?`, { title: 'Delete downloaded file', confirmLabel: 'Delete file', danger: true })) return;
   try {
     await postDownloadAction(`/api/download-history/${id}/delete-file`);
     downloadHistory = downloadHistory.filter(entry => entry.id !== id);
     renderHistory();
   } catch (err) {
-    alert(`Could not delete downloaded file: ${err.message}`);
+    await appAlert(`Could not delete downloaded file: ${err.message}`, { title: 'Could not delete file' });
   }
 };
 
 window.copyDownloadUrl = async function(id, source) {
   const item = source === 'active' ? activeDownloads.get(id) : downloadHistory.find(entry => entry.id === id);
-  if (!item?.url) return alert('The download link is not available.');
+  if (!item?.url) return appAlert('The download link is not available.', { title: 'Link unavailable' });
   try {
     await navigator.clipboard.writeText(item.url);
   } catch (err) {
-    alert(`Could not copy download link: ${err.message}`);
+    await appAlert(`Could not copy download link: ${err.message}`, { title: 'Could not copy link' });
   }
 };
 
@@ -727,7 +892,7 @@ window.openActiveDownloadFolder = async function(id) {
 window.restartDownload = async function(id) {
   const item = activeDownloads.get(id);
   if (!item) return;
-  if (!confirm(`Cancel '${item.filename}' and delete its partial file, then start it again from the beginning?`)) return;
+  if (!await appConfirm(`Cancel '${item.filename}' and delete its partial file, then start it again from the beginning?`, { title: 'Restart download', confirmLabel: 'Restart', danger: true })) return;
   try {
     await postDownloadAction(`/api/downloads/${id}/cancel`);
     activeDownloads.delete(id);
@@ -741,7 +906,7 @@ window.restartDownload = async function(id) {
     });
     acceptNewDownload(task);
   } catch (err) {
-    alert(`Could not restart download: ${err.message}`);
+    await appAlert(`Could not restart download: ${err.message}`, { title: 'Could not restart download' });
   }
 };
 
@@ -752,22 +917,46 @@ function renderHistory() {
   if (!tbody) return;
 
   if (downloadHistory.length === 0) {
-    tbody.innerHTML = `<tr><td colspan="5" class="empty-table-cell">No completed downloads yet</td></tr>`;
+    selectedHistoryIds.clear();
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-table-cell">No completed downloads yet</td></tr>`;
+    updateHistoryBulkControls();
     return;
   }
 
+  const availableIds = new Set(downloadHistory.map(item => String(item.id)));
+  for (const id of selectedHistoryIds) {
+    if (!availableIds.has(id)) selectedHistoryIds.delete(id);
+  }
+
   tbody.innerHTML = downloadHistory.map(item => {
-    const dateStr = item.completedAt ? new Date(item.completedAt).toLocaleTimeString() : '--';
-    const size = Number(item.downloadedBytes ?? item.contentLength ?? 0);
+    const itemId = String(item.id);
+    const isSelected = selectedHistoryIds.has(itemId);
+    const date = item.completedAt || item.updatedAt ? new Date(item.completedAt || item.updatedAt) : null;
+    const dateStr = date && Number.isFinite(date.getTime()) ? date.toLocaleTimeString() : '—';
+    const size = Number(item.status === 'error' ? (item.downloadedBytes || 0) : (item.downloadedBytes ?? item.contentLength ?? 0));
     const isCompleted = item.status === 'completed' && size > 0;
-    const statusText = isCompleted ? 'COMPLETED' : (item.status === 'completed' ? 'ERROR' : item.status.toUpperCase());
+    const isFailed = item.status === 'error' || (item.status === 'completed' && size === 0);
+    const statusText = isCompleted ? 'COMPLETED' : (isFailed ? 'FAILED' : item.status.toUpperCase());
     const filename = escapeHtml(item.filename || 'download.bin');
-    const errorTitle = item.error ? ` title="${escapeHtml(item.error)}"` : '';
+    const rawError = item.error || (item.supportsRanges === false && size > 0 ? 'This host cannot resume partial downloads.' : '');
+    const errorSummary = describeDownloadError(rawError);
+    const historyDetails = [
+      item.error,
+      item.supportsRanges === false ? 'This host does not support byte-range requests. The download used one connection and cannot resume from its partial data.' : ''
+    ].filter(Boolean).join(' ');
+    const errorTitle = historyDetails ? ` title="${escapeHtml(historyDetails)}"` : '';
+    const sizeLabel = isFailed && size > 0 ? `Partial · ${formatBytes(size)}` : formatBytes(size);
 
     return `
-      <tr>
-        <td style="font-weight: 600; color: #f8fafc">${filename}</td>
-        <td class="mono">${formatBytes(size)}</td>
+      <tr class="${isFailed ? 'history-row-failed' : ''}">
+        <td class="history-select-cell">
+          <input class="history-row-checkbox" type="checkbox" aria-label="Select ${filename}" value="${escapeHtml(itemId)}" ${isSelected ? 'checked' : ''} onchange="toggleHistorySelection(this)">
+        </td>
+        <td class="history-filename-cell">
+          <span class="history-file-name">${filename}</span>
+          ${isFailed ? `<div class="history-error-detail" title="${escapeHtml(historyDetails || errorSummary)}"><span>${escapeHtml(errorSummary)}</span><button type="button" class="history-retry-link" onclick="redownloadHistoryItem('${itemId}')">Retry</button></div>` : ''}
+        </td>
+        <td class="mono"${isFailed && size > 0 ? ` title="${formatBytes(size)} downloaded before the failure${Number(item.contentLength) > size ? ` out of ${formatBytes(Number(item.contentLength))}` : ''}"` : ''}>${sizeLabel}</td>
         <td>
           <span class="count-pill"${errorTitle} style="color: ${isCompleted ? '#00f5a0' : '#ff3366'}">
             ${statusText}
@@ -789,7 +978,82 @@ function renderHistory() {
       </tr>
     `;
   }).join('');
+  updateHistoryBulkControls();
 }
+
+function updateHistoryBulkControls() {
+  const selectAll = document.getElementById('historySelectAll');
+  const bulkBar = document.getElementById('historyBulkActions');
+  const selectedCount = document.getElementById('historySelectedCount');
+  const count = selectedHistoryIds.size;
+  const total = downloadHistory.length;
+  if (selectAll) {
+    selectAll.disabled = total === 0;
+    selectAll.checked = total > 0 && count === total;
+    selectAll.indeterminate = count > 0 && count < total;
+  }
+  if (bulkBar) bulkBar.hidden = count === 0;
+  if (selectedCount) selectedCount.textContent = `${count} selected`;
+  document.querySelectorAll('#historyBulkActions button').forEach(button => {
+    button.disabled = historyBulkActionInProgress;
+  });
+}
+
+window.toggleHistorySelection = function(checkbox) {
+  const id = String(checkbox?.value || '');
+  if (!id) return;
+  if (checkbox.checked) selectedHistoryIds.add(id);
+  else selectedHistoryIds.delete(id);
+  updateHistoryBulkControls();
+};
+
+window.toggleAllHistorySelection = function(checkbox) {
+  if (checkbox.checked) {
+    downloadHistory.forEach(item => selectedHistoryIds.add(String(item.id)));
+  } else {
+    selectedHistoryIds.clear();
+  }
+  renderHistory();
+};
+
+window.runHistoryBulkAction = async function(action) {
+  if (historyBulkActionInProgress) return;
+  const selectedItems = downloadHistory.filter(item => selectedHistoryIds.has(String(item.id)));
+  if (!selectedItems.length) return;
+
+  const deletingFiles = action === 'delete-file';
+  if (!deletingFiles && action !== 'remove') return;
+  const confirmed = deletingFiles
+    ? await appConfirm(`Permanently delete ${selectedItems.length} selected file(s) from your computer and remove them from history?`, { title: 'Delete selected files', confirmLabel: 'Delete files', danger: true })
+    : await appConfirm(`Remove ${selectedItems.length} selected item(s) from history? Downloaded files will stay on your computer.`, { title: 'Remove selected items', confirmLabel: 'Remove' });
+  if (!confirmed) return;
+
+  historyBulkActionInProgress = true;
+  updateHistoryBulkControls();
+  const routeAction = deletingFiles ? 'delete-file' : 'remove';
+  const results = await Promise.allSettled(selectedItems.map(item =>
+    postDownloadAction(`/api/download-history/${encodeURIComponent(item.id)}/${routeAction}`)
+  ));
+  const removedIds = new Set();
+  results.forEach((result, index) => {
+    if (result.status === 'fulfilled') removedIds.add(String(selectedItems[index].id));
+  });
+
+  if (removedIds.size) {
+    downloadHistory = downloadHistory.filter(item => !removedIds.has(String(item.id)));
+    removedIds.forEach(id => selectedHistoryIds.delete(id));
+  }
+  historyBulkActionInProgress = false;
+  renderHistory();
+
+  const failedCount = results.length - removedIds.size;
+  const actionLabel = deletingFiles ? 'deleted' : 'removed from history';
+  if (failedCount) {
+    await appAlert(`${removedIds.size} item(s) ${actionLabel}. ${failedCount} failed; those items remain selected so you can retry.`, { title: 'Some items could not be processed' });
+  } else {
+    await appAlert(`${removedIds.size} item(s) ${actionLabel}.`, { title: 'Bulk action complete' });
+  }
+};
 
 window.openHistoryItemFolder = async function(id) {
   const item = downloadHistory.find(h => h.id === id);
@@ -829,7 +1093,13 @@ window.openNewModal = function() {
 window.closeNewModal = function() {
   if (modal) modal.style.display = 'none';
   const probeFeedback = document.getElementById('probeResultText');
-  if (probeFeedback) probeFeedback.textContent = '';
+  if (probeFeedback) {
+    probeFeedback.textContent = '';
+    probeFeedback.classList.remove('is-warning', 'is-error');
+  }
+  probedData = null;
+  probedInputUrl = '';
+  probedAt = 0;
 };
 
 function populateModalInterfaces() {
@@ -1090,7 +1360,7 @@ function applySpeedTestResult(address, result) {
   const badge = document.getElementById(`speedtest-badge-${safeId}`);
   if (!badge) return;
   badge.style.display = 'inline-block';
-  badge.className = `speedtest-result-badge${result.error ? ' speedtest-result-error' : ''}`;
+  badge.className = `speedtest-result-badge compact-badge${result.error ? ' speedtest-result-error' : ''}`;
   badge.textContent = result.text;
 }
 
@@ -1117,6 +1387,13 @@ function showSpeedTestSummary(titleText, subText, speedText, completed = true) {
 }
 
 window.testSingleAdapterSpeed = async function(address) {
+  if (speedTestInProgress) return;
+  speedTestInProgress = true;
+  activeSpeedTestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const testId = activeSpeedTestId;
+  const allButton = document.getElementById('btnTestAllSpeeds');
+  if (allButton) allButton.disabled = true;
+  document.querySelectorAll('.btn-icon-test').forEach(button => { button.disabled = true; });
   const safeId = address.replace(/[^a-zA-Z0-9]/g, '_');
   const card = document.getElementById(`adapter-${safeId}`);
   const badge = document.getElementById(`speedtest-badge-${safeId}`);
@@ -1125,7 +1402,7 @@ window.testSingleAdapterSpeed = async function(address) {
   if (card) card.classList.add('testing');
   if (badge) {
     badge.style.display = 'inline-block';
-    badge.className = 'speedtest-result-badge testing';
+    badge.className = 'speedtest-result-badge compact-badge testing';
     badge.textContent = 'Testing (5s)...';
   }
   showSpeedTestSummary(`Testing ${networkInterfaces.find(i => i.address === address)?.name || address}...`, 'Measuring latency and download throughput for 5 seconds', 'Testing...', false);
@@ -1141,7 +1418,7 @@ window.testSingleAdapterSpeed = async function(address) {
     const res = await fetch('/api/speedtest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address, duration: 5 })
+      body: JSON.stringify({ address, duration: 5, testId })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `Server returned HTTP ${res.status}`);
@@ -1161,11 +1438,22 @@ window.testSingleAdapterSpeed = async function(address) {
     showSpeedTestSummary('Speed test failed', err.message, 'Failed');
   } finally {
     if (card) card.classList.remove('testing');
+    activeSpeedTestId = null;
+    speedTestInProgress = false;
+    if (allButton) allButton.disabled = false;
+    document.querySelectorAll('.btn-icon-test').forEach(button => { button.disabled = false; });
     updateGlobalSpeed();
   }
 };
 
 window.testAllAdaptersSpeed = async function() {
+  if (speedTestInProgress) return;
+  speedTestInProgress = true;
+  activeSpeedTestId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  const testId = activeSpeedTestId;
+  const allButton = document.getElementById('btnTestAllSpeeds');
+  if (allButton) allButton.disabled = true;
+  document.querySelectorAll('.btn-icon-test').forEach(button => { button.disabled = true; });
   showSpeedTestSummary('Benchmarking all active adapters (5s)...', 'Measuring download throughput and latency across bonded interfaces', 'Testing...', false);
 
   const onlineIfaces = networkInterfaces.filter(i => i.online);
@@ -1177,7 +1465,7 @@ window.testAllAdaptersSpeed = async function() {
     if (card) card.classList.add('testing');
     if (badge) {
       badge.style.display = 'inline-block';
-      badge.className = 'speedtest-result-badge testing';
+      badge.className = 'speedtest-result-badge compact-badge testing';
       badge.textContent = 'Testing (5s)...';
     }
     simSpeeds[i.address] = 4 * 1024 * 1024;
@@ -1191,12 +1479,15 @@ window.testAllAdaptersSpeed = async function() {
     const res = await fetch('/api/speedtest', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ address: 'all', duration: 5 })
+      body: JSON.stringify({ address: 'all', duration: 5, testId })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || `Server returned HTTP ${res.status}`);
 
-    showSpeedTestSummary(`Aggregate bonded throughput: ${data.totalSpeedFormatted}`, `Concurrent test across ${data.activeCount} active network adapters`, `${data.totalMbps} Mbps`);
+    const aggregateMBps = Number.isFinite(Number(data.totalMBps))
+      ? Number(data.totalMBps).toFixed(2)
+      : (Number(data.totalMbps || 0) / 8).toFixed(2);
+    showSpeedTestSummary(`Aggregate bonded throughput: ${aggregateMBps} MB/s`, `Concurrent test across ${data.activeCount} active network adapters`, `${aggregateMBps} MB/s`);
 
     (data.adapters || []).forEach(adapterResult => {
       if (adapterResult.localAddress) {
@@ -1215,6 +1506,10 @@ window.testAllAdaptersSpeed = async function() {
       const card = document.getElementById(`adapter-${safeId}`);
       if (card) card.classList.remove('testing');
     });
+    activeSpeedTestId = null;
+    speedTestInProgress = false;
+    if (allButton) allButton.disabled = false;
+    document.querySelectorAll('.btn-icon-test').forEach(button => { button.disabled = false; });
     updateGlobalSpeed();
   }
 };
@@ -1400,9 +1695,9 @@ document.addEventListener('DOMContentLoaded', () => {
       });
       currentSettings = await res.json();
       closeSettingsModal();
-      alert('✓ Turbo Download Manager Configuration Saved Successfully!');
+      await appAlert('Turbo Download Manager configuration saved successfully.', { title: 'Settings saved' });
     } catch (err) {
-      alert(`Failed to save settings: ${err.message}`);
+      await appAlert(`Failed to save settings: ${err.message}`, { title: 'Could not save settings' });
     }
   });
 
@@ -1415,6 +1710,16 @@ document.addEventListener('DOMContentLoaded', () => {
   if (urlInput) {
     urlInput.addEventListener('input', () => {
       const url = urlInput.value.trim();
+      if (url !== probedInputUrl) {
+        probedData = null;
+        probedInputUrl = '';
+        probedAt = 0;
+        const feedback = document.getElementById('probeResultText');
+        if (feedback) {
+          feedback.textContent = '';
+          feedback.classList.remove('is-warning', 'is-error');
+        }
+      }
       if (url && currentSettings) {
         try {
           const u = new URL(url);
@@ -1450,22 +1755,31 @@ document.addEventListener('DOMContentLoaded', () => {
     const filenameInput = document.getElementById('inputFilename');
     const outputDirInput = document.getElementById('inputOutputDir');
     const catBadge = document.getElementById('categoryBadge');
+    const probeButton = document.getElementById('btnProbeUrl');
     if (!urlInput || !urlInput.value) return;
 
+    const targetUrl = urlInput.value.trim();
+    const originalLabel = probeButton?.textContent;
+    if (probeButton) {
+      probeButton.disabled = true;
+      probeButton.textContent = 'Checking…';
+    }
     feedback.textContent = 'Probing server for Range support and file size...';
+    feedback.classList.remove('is-warning', 'is-error');
     try {
       const res = await fetch('/api/probe', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: urlInput.value.trim() })
+        body: JSON.stringify({ url: targetUrl })
       });
-      const data = await res.json();
-      if (data.error) {
-        feedback.textContent = `Error: ${data.error}`;
-        return;
+      const data = await readApiResponse(res, 'Probe');
+      if (!res.ok || data.error) {
+        throw new Error(data.error || `Server returned HTTP ${res.status}`);
       }
 
       probedData = data;
+      probedInputUrl = targetUrl;
+      probedAt = Date.now();
       if (filenameInput && data.filename) {
         filenameInput.value = data.filename;
       }
@@ -1475,9 +1789,17 @@ document.addEventListener('DOMContentLoaded', () => {
       if (data.suggestedFolder && outputDirInput) {
         outputDirInput.value = data.suggestedFolder;
       }
-      feedback.textContent = `Size: ${formatBytes(data.contentLength)} | Range Support: ${data.supportsRanges ? 'YES (Multi-Interface Accelerated)' : 'NO (Single Stream)'}`;
+      renderProbeFeedback(data, feedback);
     } catch (err) {
-      feedback.textContent = `Probe failed: ${err.message}`;
+      probedData = null;
+      probedInputUrl = '';
+      feedback.textContent = `Probe failed: ${err.message || 'Could not inspect this link.'}`;
+      feedback.classList.add('is-error');
+    } finally {
+      if (probeButton) {
+        probeButton.disabled = false;
+        probeButton.textContent = originalLabel || 'Probe';
+      }
     }
   });
 
@@ -1496,8 +1818,39 @@ document.addEventListener('DOMContentLoaded', () => {
     const chosenAddresses = checkedBoxes.map(cb => cb.value);
 
     const chosenInterfaces = networkInterfaces.filter(iface => chosenAddresses.includes(iface.address));
+    const submitButton = document.getElementById('btnSubmitDownload');
+    const originalSubmitLabel = submitButton?.textContent;
+    if (submitButton) {
+      submitButton.disabled = true;
+      submitButton.textContent = 'Checking link…';
+    }
 
     try {
+      let preflight = probedData && probedInputUrl === url && Date.now() - probedAt < 30000
+        ? probedData
+        : null;
+      if (!preflight) {
+        const probeResponse = await fetch('/api/probe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url })
+        });
+        preflight = await readApiResponse(probeResponse, 'Download probe');
+        if (!probeResponse.ok || preflight.error) {
+          throw new Error(preflight.error || `Server returned HTTP ${probeResponse.status}`);
+        }
+        probedData = preflight;
+        probedInputUrl = url;
+        probedAt = Date.now();
+        renderProbeFeedback(preflight, document.getElementById('probeResultText'));
+      }
+
+      const warnings = getProbeWarnings(preflight);
+      if (warnings.length && !await appConfirm(`Download warning:\n\n${warnings.join('\n\n')}\n\nContinue anyway?`, { title: 'Download notice', confirmLabel: 'Continue download' })) {
+        return;
+      }
+
+      if (submitButton) submitButton.textContent = 'Starting download…';
       const res = await fetch('/api/downloads', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1512,7 +1865,7 @@ document.addEventListener('DOMContentLoaded', () => {
         })
       });
 
-      const task = await res.json();
+      const task = await readApiResponse(res, 'Download request');
       if (!res.ok || task.error) {
         throw new Error(task.error || `Server returned HTTP ${res.status}`);
       }
@@ -1521,7 +1874,18 @@ document.addEventListener('DOMContentLoaded', () => {
       closeNewModal();
       document.getElementById('downloadForm').reset();
     } catch (err) {
-      alert(`Failed to start download: ${err.message}`);
+      const feedback = document.getElementById('probeResultText');
+      if (feedback) {
+        feedback.textContent = `Could not start download: ${err.message || 'Unexpected error'}`;
+        feedback.classList.add('is-error');
+      } else {
+        await appAlert(`Failed to start download: ${err.message || 'Unexpected error'}`, { title: 'Download could not start' });
+      }
+    } finally {
+      if (submitButton) {
+        submitButton.disabled = false;
+        submitButton.textContent = originalSubmitLabel || '⚡ Start Bonded Download';
+      }
     }
   });
 
@@ -1549,6 +1913,7 @@ class QuantumEnergyFlowCanvas {
     this.isSurgeDemo = false;
     this.surgeDemoTimer = null;
     this.adapterSpeeds = {};
+    this.lastTraffic = new Map();
     this.totalSpeed = 0;
     this.animating = false;
     this.lastFrameTime = performance.now();
@@ -1779,13 +2144,20 @@ class QuantumEnergyFlowCanvas {
       const position = this.getAdapterPosition(iface.address, index, ifaceCount, bounds);
       const isPaused = selectedInterfaces.size > 0 ? !selectedInterfaces.has(iface.address) : !iface.online;
       const speed = isPaused ? 0 : (this.isSurgeDemo ? 22 * 1024 * 1024 : (this.adapterSpeeds[iface.address] || 0));
+      const now = performance.now();
+      if (speed > 0) this.lastTraffic.set(iface.address, { at: now, speed });
+      const previousTraffic = this.lastTraffic.get(iface.address);
+      const elapsedSinceTraffic = previousTraffic ? now - previousTraffic.at : Infinity;
+      const fade = Math.max(0, 1 - elapsedSinceTraffic / 1500);
+      const visualSpeed = speed > 0 ? speed : (previousTraffic?.speed || 0) * fade;
+      const hasTraffic = !isPaused && (speed > 0 || fade > 0);
       const color = isPaused ? '#64748b' : INTERFACE_COLORS[index % INTERFACE_COLORS.length];
-      return { iface, index, x: position.x, y: position.y, color, speed, isPaused };
+      return { iface, index, x: position.x, y: position.y, color, speed, visualSpeed, hasTraffic, isPaused };
     });
 
     // 1. Draw conduit lines
     sources.forEach(src => {
-      const hasTraffic = !src.isPaused && (src.speed > 0 || this.isSurgeDemo);
+      const hasTraffic = src.hasTraffic || (!src.isPaused && this.isSurgeDemo);
       const wireStartX = src.x + 14;
       const wireEndX = destX - 24;
       const cp1X = wireStartX + (wireEndX - wireStartX) * 0.5;
@@ -1803,7 +2175,7 @@ class QuantumEnergyFlowCanvas {
         ctx.strokeStyle = 'rgba(255, 184, 0, 0.25)';
       } else {
         ctx.setLineDash([]);
-        ctx.lineWidth = (hasTraffic ? 1.75 + Math.min(1.75, src.speed / (12 * 1024 * 1024)) : 1.25) * wireScale;
+        ctx.lineWidth = (hasTraffic ? 1.8 : 1.25) * wireScale;
         ctx.strokeStyle = hasTraffic ? src.color : 'rgba(255, 255, 255, 0.12)';
       }
       ctx.stroke();
@@ -1812,7 +2184,7 @@ class QuantumEnergyFlowCanvas {
       // Show moving data only while an adapter is carrying a download. Higher
       // throughput fills the wire with more, slightly larger and faster pulses.
       if (hasTraffic) {
-        const targetPulseCount = Math.min(14, 7 + Math.floor(src.speed / (4 * 1024 * 1024)));
+        const targetPulseCount = Math.min(14, 7 + Math.floor(src.visualSpeed / (4 * 1024 * 1024)));
         const pulsesForSrc = this.pulses.filter(p => p.srcIdx === src.index).length;
         const pulseDeficit = targetPulseCount - pulsesForSrc;
         const spawnChance = Math.min(0.9, 0.3 * pulseDeficit);
@@ -1821,9 +2193,9 @@ class QuantumEnergyFlowCanvas {
           this.pulses.push({
             srcIdx: src.index,
             t: 0,
-            speedRate: 0.5 + Math.min(0.8, src.speed / (30 * 1024 * 1024)),
+            speedRate: 0.5 + Math.min(0.8, src.visualSpeed / (30 * 1024 * 1024)),
             color: src.color,
-            size: 3.5 + Math.min(1.75, src.speed / (8 * 1024 * 1024))
+            size: 3.5 + Math.min(1.75, src.visualSpeed / (8 * 1024 * 1024))
           });
         }
       }
@@ -1840,7 +2212,7 @@ class QuantumEnergyFlowCanvas {
       }
 
       const src = sources[p.srcIdx];
-      if (!src || src.isPaused) {
+      if (!src || src.isPaused || !src.hasTraffic) {
         this.pulses.splice(i, 1);
         continue;
       }
@@ -1870,7 +2242,7 @@ class QuantumEnergyFlowCanvas {
 
     // 3. Draw Left Adapter Nodes (Clean, minimalistic, NO text overlap)
     sources.forEach(src => {
-      const hasTraffic = !src.isPaused && (src.speed > 0 || this.isSurgeDemo);
+      const hasTraffic = src.hasTraffic || (!src.isPaused && this.isSurgeDemo);
 
       // Register clickable region for this adapter row
       const labelWidth = Math.min(154, Math.max(86, w * 0.3));

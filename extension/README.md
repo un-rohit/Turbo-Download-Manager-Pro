@@ -2,8 +2,9 @@
 
 This extension integrates your browser with the **Turbo Download Manager** desktop application, providing:
 
-- Browser downloads are handed to Turbo before Chrome/Edge starts saving. Turbo asks you to choose a destination folder, then downloads the file itself.
-- Turn **Use Turbo for browser downloads** off in the extension popup to restore your browser's normal save behavior.
+- With **Use Turbo for browser downloads** on, supported HTTP/HTTPS downloads go only through Turbo. The page prompt starts Turbo after 3 seconds; choose **Cancel download** to stop it. Unsupported download types are stopped. If Turbo cannot accept a download, the extension reports the error and does not fall back to Chrome/Edge's downloader.
+- Turn the toggle off to use your browser's normal save settings. Downloads already in progress in the browser are not changed.
+- The extension popup shows active download progress with pause, resume, and cancel controls. Completed downloads include **Open file** and **Open folder** actions.
 
 1. **Automatic Download Interception**: Catches browser downloads and routes them through multi-interface bonded downloading.
 2. **Right-Click Context Menu**: Right-click any link, video, or image and select `⚡ Download with Turbo Download Manager`.

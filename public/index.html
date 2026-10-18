@@ -140,7 +140,7 @@
             <div class="speedtest-banner-stats">
               <div class="stat-pill">
                 <span class="stat-lbl">AGGREGATE SPEED</span>
-                <span id="speedTestBannerMbps" class="stat-val mono">-- Mbps</span>
+                <span id="speedTestBannerMbps" class="stat-val mono">-- MB/s</span>
               </div>
             </div>
           </div>
@@ -185,9 +185,17 @@
         </div>
 
         <div id="historyTableContainer" class="history-table-container">
+          <div id="historyBulkActions" class="history-bulk-toolbar" hidden>
+            <span id="historySelectedCount" class="history-selected-count" aria-live="polite">0 selected</span>
+            <div class="history-bulk-buttons">
+              <button type="button" class="btn btn-sm btn-glass" onclick="runHistoryBulkAction('remove')">Remove from history</button>
+              <button type="button" class="btn btn-sm btn-danger-glass" onclick="runHistoryBulkAction('delete-file')">Delete selected files</button>
+            </div>
+          </div>
           <table class="history-table">
             <thead>
               <tr>
+                <th class="history-select-cell"><input id="historySelectAll" type="checkbox" aria-label="Select all downloads" onchange="toggleAllHistorySelection(this)"></th>
                 <th>File Name</th>
                 <th>Size</th>
                 <th>Status</th>
@@ -197,7 +205,7 @@
             </thead>
             <tbody id="historyList">
               <tr>
-                <td colspan="5" class="empty-table-cell">No previous downloads found</td>
+                <td colspan="6" class="empty-table-cell">No previous downloads found</td>
               </tr>
             </tbody>
           </table>
@@ -701,6 +709,19 @@
       <button type="button" id="btnUseNewAdapter" class="btn btn-xs btn-accent">Use adapter</button>
     </div>
   </aside>
+
+  <div id="appDialogBackdrop" class="app-dialog-backdrop" hidden>
+    <section class="app-dialog" role="dialog" aria-modal="true" aria-labelledby="appDialogTitle" aria-describedby="appDialogMessage" tabindex="-1">
+      <div class="app-dialog-accent" aria-hidden="true"></div>
+      <h2 id="appDialogTitle" class="app-dialog-title">Notice</h2>
+      <p id="appDialogMessage" class="app-dialog-message"></p>
+      <input id="appDialogInput" class="app-dialog-input" type="text" aria-label="Value" autocomplete="off" hidden>
+      <div class="app-dialog-actions">
+        <button id="appDialogCancel" class="btn btn-glass" type="button" hidden>Cancel</button>
+        <button id="appDialogConfirm" class="app-dialog-confirm btn btn-primary" type="button">OK</button>
+      </div>
+    </section>
+  </div>
 
   <script src="app.js"></script>
 </body>

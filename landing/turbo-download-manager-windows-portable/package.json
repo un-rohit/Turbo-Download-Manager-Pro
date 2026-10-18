@@ -1,0 +1,28 @@
+{
+  "name": "turbo-download-manager",
+  "version": "1.0.0",
+  "description": "Turbo Download Manager — Multi-Interface Hardware Channel Bonding Accelerator",
+  "main": "electron-main.cjs",
+  "type": "module",
+  "scripts": {
+    "build": "echo 'Landing page static assets ready'",
+    "start": "node server.js",
+    "app": "node bin/app.js",
+    "electron": "electron .",
+    "dist": "npx @electron/packager . Turbo-Download-Manager --platform=win32 --arch=x64 --out=dist --overwrite"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^44.8.0"
+  },
+  "keywords": [
+    "download-manager",
+    "turbo-download-manager",
+    "idm",
+    "channel-bonding",
+    "multi-interface",
+    "segmented-download"
+  ],
+  "author": "",
+  "license": "MIT"
+}

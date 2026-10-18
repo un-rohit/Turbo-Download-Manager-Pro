@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Turbo Download Manager</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="popup-container">
+    <div class="popup-header">
+      <div class="brand">
+        <span class="brand-icon">⚡</span>
+        <div>
+          <h4>TURBO <span class="badge">DOWNLOAD</span></h4>
+          <span class="sub">Manager Extension</span>
+        </div>
+      </div>
+      <div id="statusPill" class="status-pill offline">
+        <span class="dot"></span>
+        <span id="statusText">CHECKING...</span>
+      </div>
+    </div>
+
+    <!-- Quick Stats -->
+    <div class="stats-card">
+      <div class="stat-col">
+        <span class="stat-label">TOTAL SPEED</span>
+        <span id="speedValue" class="stat-val mono">0 KB/s</span>
+      </div>
+      <div class="stat-col">
+        <span class="stat-label">ACTIVE JOBS</span>
+        <span id="activeJobsCount" class="stat-val mono">0</span>
+      </div>
+      <div class="stat-col">
+        <span class="stat-label">ADAPTERS ONLINE</span>
+        <span id="bondedCount" class="stat-val mono">0</span>
+      </div>
+    </div>
+
+    <div class="adapter-usage" aria-live="polite">
+      <span class="adapter-usage-label">IN USE</span>
+      <span id="adapterUsage" class="adapter-usage-value">No active download</span>
+    </div>
+    <div id="rangeWarning" class="range-warning" hidden>
+      ⚠ This host allows one connection only. If interrupted, the download restarts from the beginning.
+    </div>
+
+    <section id="downloadSection" class="downloads-section" aria-live="polite" hidden>
+      <h5 id="downloadSectionTitle">Downloads</h5>
+      <div id="downloadList" class="download-list"></div>
+      <div id="downloadError" class="download-error" role="alert" hidden></div>
+    </section>
+
+    <!-- Settings & Toggles -->
+    <div class="toggle-list">
+      <label class="toggle-row">
+        <span>Use Turbo for browser downloads</span>
+        <input type="checkbox" id="chkIntercept" checked>
+      </label>
+      <p class="toggle-hint">On: supported web downloads go only through Turbo; unsupported types stop. If Turbo is unavailable, the download stops. Off: use your browser's normal save settings.</p>
+    </div>
+
+    <!-- Action Buttons -->
+    <div class="action-buttons">
+      <button id="btnOpenApp" class="btn btn-primary">
+        Open in App
+      </button>
+      <button id="btnOpenTab" class="btn btn-glass">
+        Open in Tab
+      </button>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>

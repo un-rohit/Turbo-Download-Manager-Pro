@@ -326,6 +326,8 @@ export async function handleRequest(req, res) {
     try {
       const body = await parseJsonBody(req);
       const targetAddress = body.address; // 'all', specific IP, or array
+      const testId = typeof body.testId === 'string' ? body.testId.slice(0, 80) : null;
+      const reportProgress = (progress) => broadcastSSE('speedtest_progress', { ...progress, testId });
       const duration = Math.min(5, parseInt(body.duration, 10) || 5);
       const ifaces = await getNetworkInterfaces(false);
       // Filter candidates: prefer online, or fallback to all detected physical interfaces
@@ -334,31 +336,23 @@ export async function handleRequest(req, res) {
 
       if (targetAddress && targetAddress !== 'all') {
         // Individual adapter speed test (5s)
-        broadcastSSE('speedtest_start', { address: targetAddress, duration });
-        const result = await runAdapterSpeedTest(targetAddress, (prog) => {
-          broadcastSSE('speedtest_progress', prog);
-        }, duration);
+        broadcastSSE('speedtest_start', { address: targetAddress, duration, testId });
+        const result = await runAdapterSpeedTest(targetAddress, reportProgress, duration);
         if (result && result.success && result.bytes > 0) {
           broadcastSSE('interface_status_update', { address: targetAddress, online: true });
         }
-        broadcastSSE('speedtest_complete', result);
-        return sendJson(res, 200, { result });
+        broadcastSSE('speedtest_complete', { ...result, testId });
+        return sendJson(res, 200, { result, testId });
       } else {
         // Test all candidate interfaces concurrently (5s)
-        broadcastSSE('speedtest_start', { address: 'all', count: candidateIfaces.length, duration });
+        broadcastSSE('speedtest_start', { address: 'all', count: candidateIfaces.length, duration, testId });
         const results = await Promise.all(
-          candidateIfaces.map(iface => runAdapterSpeedTest(iface.address, (prog) => {
-            broadcastSSE('speedtest_progress', prog);
-          }, duration))
+          candidateIfaces.map(iface => runAdapterSpeedTest(iface.address, reportProgress, duration))
         );
 
-        let totalBytes = 0;
-        let totalDuration = 0;
         let totalMbps = 0;
         results.forEach(r => {
           if (r.success) {
-            totalBytes += r.bytes;
-            totalDuration = Math.max(totalDuration, r.duration);
             totalMbps += r.mbps;
             if (r.localAddress && r.bytes > 0) {
               broadcastSSE('interface_status_update', { address: r.localAddress, online: true });
@@ -369,12 +363,13 @@ export async function handleRequest(req, res) {
         const aggregateResult = {
           adapters: results,
           totalMbps: parseFloat(totalMbps.toFixed(2)),
-          totalSpeedFormatted: `${(totalBytes / (Math.max(0.1, totalDuration) * 1024 * 1024)).toFixed(2)} MB/s (${totalMbps.toFixed(2)} Mbps)`,
+          totalMBps: parseFloat((totalMbps / 8).toFixed(2)),
+          totalSpeedFormatted: `${(totalMbps / 8).toFixed(2)} MB/s`,
           activeCount: candidateIfaces.length
         };
 
-        broadcastSSE('speedtest_complete', aggregateResult);
-        return sendJson(res, 200, aggregateResult);
+        broadcastSSE('speedtest_complete', { ...aggregateResult, testId });
+        return sendJson(res, 200, { ...aggregateResult, testId });
       }
     } catch (err) {
       return sendJson(res, 500, { error: err.message });
@@ -457,11 +452,35 @@ export async function handleRequest(req, res) {
     });
   }
 
-  const historyActionMatch = url.pathname.match(/^\/api\/download-history\/([^/]+)\/(remove|delete-file)$/);
+  const historyActionMatch = url.pathname.match(/^\/api\/download-history\/([^/]+)\/(remove|delete-file|open-file|open-folder)$/);
   if (historyActionMatch && req.method === 'POST') {
     const [, historyId, action] = historyActionMatch;
     const item = downloadManager.getHistoryItem(historyId);
     if (!item) return sendJson(res, 404, { error: 'Download history item not found' });
+
+    if (action === 'open-file' || action === 'open-folder') {
+      try {
+        const targetPath = item.outputPath && path.resolve(item.outputPath);
+        if (!targetPath || !fs.existsSync(targetPath) || !fs.statSync(targetPath).isFile()) {
+          return sendJson(res, 404, { error: 'The downloaded file is no longer available' });
+        }
+
+        const command = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
+        const target = action === 'open-file' || process.platform === 'win32'
+          ? targetPath
+          : path.dirname(targetPath);
+        const args = action === 'open-folder' && process.platform === 'win32' ? [`/select,${target}`] : [target];
+        const child = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true });
+        await new Promise((resolve, reject) => {
+          child.once('error', reject);
+          child.once('spawn', resolve);
+        });
+        child.unref();
+        return sendJson(res, 200, { ok: true });
+      } catch (err) {
+        return sendJson(res, 500, { error: `Could not open the downloaded ${action === 'open-file' ? 'file' : 'folder'}: ${err.message}` });
+      }
+    }
 
     if (action === 'delete-file') {
       try {
@@ -560,6 +579,24 @@ export async function handleRequest(req, res) {
     } catch (err) {
       console.error('[Turbo Download Manager] Error opening folder:', err);
       return sendJson(res, 500, { error: err.message });
+    }
+  }
+
+  if (url.pathname === '/api/open-app' && req.method === 'POST') {
+    try {
+      // In Electron, relaunching the same executable triggers its single-instance
+      // handler, which restores and focuses the existing desktop window.
+      const appExecutable = process.versions.electron
+        ? process.execPath
+        : path.join(__dirname, 'dist', 'Turbo-Download-Manager-win32-x64', 'Turbo-Download-Manager.exe');
+      if (!fs.existsSync(appExecutable)) {
+        return sendJson(res, 501, { error: 'The desktop app executable was not found. Open the app once, then try again.' });
+      }
+      const child = spawn(appExecutable, [], { detached: true, stdio: 'ignore', windowsHide: true });
+      child.unref();
+      return sendJson(res, 200, { ok: true });
+    } catch (err) {
+      return sendJson(res, 500, { error: `Could not focus the desktop app: ${err.message}` });
     }
   }
 

@@ -106,7 +106,7 @@ export function runAdapterSpeedTest(localAddress, onProgress, durationSec = 5) {
         const remainingSec = Math.max(0, Math.ceil((targetDurationMs - elapsedMs) / 1000));
 
         const deltaSec = (now - lastSampleTime) / 1000;
-        if (deltaSec >= 0.4) {
+        if (deltaSec >= 0.9) {
           const deltaBytes = totalBytes - lastSampleBytes;
           rollingMbps = parseFloat(((deltaBytes * 8) / (deltaSec * 1024 * 1024)).toFixed(2));
           lastSampleBytes = totalBytes;
@@ -130,7 +130,7 @@ export function runAdapterSpeedTest(localAddress, onProgress, durationSec = 5) {
         if (elapsedMs >= targetDurationMs) {
           stopTest();
         }
-      }, 200);
+      }, 1000);
 
       // Recursive stream fetcher to keep line saturated until test duration expires
       const fetchNextChunk = () => {

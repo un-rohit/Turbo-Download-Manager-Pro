@@ -15,6 +15,19 @@ function sanitizeFilename(value) {
   return /^(con|prn|aux|nul|com[1-9]|lpt[1-9])(?:\.|$)/i.test(filename) ? `_${filename}` : filename;
 }
 
+function formatByteCount(value) {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let size = bytes / 1024;
+  let unit = units[0];
+  for (let index = 1; index < units.length && size >= 1024; index++) {
+    size /= 1024;
+    unit = units[index];
+  }
+  return `${size.toFixed(1)} ${unit}`;
+}
+
 function requestWithRedirects(urlStr, options = {}, redirectCount = 0) {
   return new Promise((resolve, reject) => {
     let parsed;
@@ -60,7 +73,7 @@ function requestWithRedirects(urlStr, options = {}, redirectCount = 0) {
 /**
  * Downloads a file slice with a bound localAddress adapter.
  */
-function requestChunk({ urlStr, localAddress, start, end, signal }) {
+function requestChunk({ urlStr, localAddress, start, end, expectedTotal, signal }) {
   return requestWithRedirects(urlStr, {
       method: 'GET',
       headers: {
@@ -77,11 +90,21 @@ function requestChunk({ urlStr, localAddress, start, end, signal }) {
       const contentRange = res.headers['content-range'];
       const match = contentRange?.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
       const validRange = res.statusCode === 206 && match &&
-        Number(match[1]) === start && Number(match[2]) >= start;
+        Number(match[1]) === start && Number(match[2]) >= start &&
+        (match[3] === '*' || Number(match[3]) === expectedTotal);
       if (!validRange) {
         const status = res.statusCode;
-        res.resume();
-        return reject(new Error(`Server returned HTTP ${status} without the requested byte range`));
+        // Some servers ignore Range and stream the entire file with HTTP 200.
+        // Destroy that response immediately; draining it can waste gigabytes
+        // for every segment before the single-connection fallback starts.
+        res.destroy();
+        const resourceChanged = status === 206 && match && match[3] !== '*' && Number(match[3]) !== expectedTotal;
+        const reason = resourceChanged
+          ? 'The remote file size changed during the download; restarting from the latest version'
+          : status === 200
+          ? 'The server does not support byte-range requests (HTTP 200 ignored Range)'
+          : `Server returned HTTP ${status} without a valid byte range`;
+        return reject(new Error(reason));
       }
       resolve(res);
     }));
@@ -165,7 +188,9 @@ export class MultiInterfaceDownload {
 
     this.status = 'idle'; // idle, downloading, paused, completed, error
     this.contentLength = 0;
-    this.supportsRanges = false;
+    this.supportsRanges = null;
+    this.forceSingleConnection = false;
+    this.fallbackReason = null;
     this.segments = [];
     this.downloadedBytes = 0;
     this.startTime = null;
@@ -323,6 +348,12 @@ export class MultiInterfaceDownload {
       progress: this.contentLength > 0 ? Math.min(1, (this.downloadedBytes / this.contentLength)) : 0,
       currentSpeed: this.currentSpeed,
       etaSeconds: this.currentSpeed > 0 ? Math.max(0, Math.round((this.contentLength - this.downloadedBytes) / this.currentSpeed)) : 0,
+      supportsRanges: this.supportsRanges,
+      transferMode: this.supportsRanges === false || this.forceSingleConnection
+        ? 'single-connection'
+        : (this.supportsRanges ? 'segmented' : 'checking'),
+      forceSingleConnection: this.forceSingleConnection,
+      fallbackReason: this.fallbackReason,
       interfaces: Object.values(this.interfaceStats).map(i => ({
         ...i,
         paused: this.pausedInterfaces.has(i.address)
@@ -344,6 +375,7 @@ export class MultiInterfaceDownload {
 
   async start() {
     if (this.status === 'downloading') return;
+    const isResuming = this.status === 'paused';
 
     // Only probe on initial run, not on resume
     if (this.contentLength === 0) {
@@ -373,11 +405,16 @@ export class MultiInterfaceDownload {
       if (!this.startTime) this.startTime = Date.now();
       this.startSpeedTracker();
 
-      if (this.supportsRanges && this.contentLength > 0) {
+      if (this.supportsRanges && this.contentLength > 0 && !this.forceSingleConnection) {
         try {
-          await this.startMultiInterfaceDownload();
+          await this.startMultiInterfaceDownload(isResuming);
         } catch (multiError) {
           if (this.status === 'paused' || this.status === 'cancelled') return;
+          if (/does not support byte-range requests|HTTP 200 ignored Range/i.test(multiError.message || '')) {
+            this.supportsRanges = false;
+          }
+          this.forceSingleConnection = true;
+          this.fallbackReason = multiError.message || 'The segmented transfer failed.';
           this.resetForSingleConnectionFallback();
           this.error = `Multi-interface attempt failed (${multiError.message}); retrying with one connection.`;
           this.notify();
@@ -408,7 +445,13 @@ export class MultiInterfaceDownload {
     } catch (err) {
       if (this.status === 'paused' || this.status === 'cancelled' || this.abortController?.signal?.aborted) return;
       this.status = 'error';
-      this.error = err.message;
+      const isInterruptedStream = /aborted|closed|ended early|socket|timeout|reset/i.test(err.message || '');
+      if (this.supportsRanges === false && this.downloadedBytes > 0 && isInterruptedStream) {
+        const total = this.contentLength > 0 ? ` of ${formatByteCount(this.contentLength)}` : '';
+        this.error = `Connection interrupted after ${formatByteCount(this.downloadedBytes)}${total}. This server does not support byte-range requests, so Turbo cannot resume the partial file; resuming will restart from the beginning.`;
+      } else {
+        this.error = err.message || 'The download failed for an unknown reason.';
+      }
       this.notify();
     } finally {
       this.cleanup();
@@ -429,11 +472,11 @@ export class MultiInterfaceDownload {
       if (deltaSec <= 0) return;
 
       const deltaTotal = this.downloadedBytes - this.lastSampleBytes;
-      this.currentSpeed = Math.round(deltaTotal / deltaSec);
+      this.currentSpeed = Math.max(0, Math.round(deltaTotal / deltaSec));
 
       for (const addr in this.interfaceStats) {
         const delta = this.interfaceStats[addr].bytesDownloaded - (lastInterfaceBytes[addr] || 0);
-        this.interfaceStats[addr].currentSpeed = Math.round(delta / deltaSec);
+        this.interfaceStats[addr].currentSpeed = Math.max(0, Math.round(delta / deltaSec));
         lastInterfaceBytes[addr] = this.interfaceStats[addr].bytesDownloaded;
       }
 
@@ -443,16 +486,18 @@ export class MultiInterfaceDownload {
     }, 500);
   }
 
-  async startMultiInterfaceDownload() {
+  async startMultiInterfaceDownload(preserveExistingFile = false) {
     // 1. Open target file without truncating if resuming
     if (this.fd === null) {
       const fileExists = fs.existsSync(this.outputPath);
-      this.fd = fs.openSync(this.outputPath, fileExists ? 'r+' : 'w+');
+      this.fd = fs.openSync(this.outputPath, preserveExistingFile && fileExists ? 'r+' : 'w+');
       fs.ftruncateSync(this.fd, this.contentLength);
     }
 
     // 2. Partition file into initial slices (e.g. 16 or 24 slices)
-    if (this.segments.length === 0) {
+    if (!this.supportsRanges || this.contentLength <= 0) {
+      this.segments = [];
+    } else if (this.segments.length === 0) {
       const initialCount = Math.max(16, this.totalConnections * 2);
       const chunkSize = Math.floor(this.contentLength / initialCount);
       const availableInterfaces = this.interfaces.length > 0 ? this.interfaces : [{ address: null, label: 'Default Gateway' }];
@@ -568,6 +613,7 @@ export class MultiInterfaceDownload {
             localAddress: route,
             start: seg.currentOffset,
             end: seg.end,
+            expectedTotal: this.contentLength,
             signal: this.abortController.signal
           });
           this.activeStreams.set(seg.id, { stream, adapterAddress: route });
@@ -643,6 +689,9 @@ export class MultiInterfaceDownload {
           if (this.status !== 'downloading') return;
           if (route && this.pausedInterfaces.has(route)) continue;
           lastError = err;
+          if (/does not support byte-range requests|without a valid byte range|remote file size changed/i.test(err.message || '')) {
+            throw err;
+          }
         } finally {
           this.activeStreams.delete(seg.id);
           if (route && this.interfaceStats[route]) {
@@ -689,26 +738,44 @@ export class MultiInterfaceDownload {
   async startFallbackDownload() {
     let resumeOffset = this.supportsRanges && this.contentLength > 0 ? this.downloadedBytes : 0;
 
-    const resetProgress = () => {
+    const resetFallbackProgress = () => {
       this.downloadedBytes = 0;
       this.currentSpeed = 0;
       for (const address in this.interfaceStats) {
         this.interfaceStats[address].bytesDownloaded = 0;
         this.interfaceStats[address].currentSpeed = 0;
+        this.interfaceStats[address].activeStreams = 0;
       }
+      this.segments = [];
+      if (this.fd !== null) {
+        try { fs.closeSync(this.fd); } catch {}
+      }
+      this.fd = null;
       if (this.speedTimer) clearInterval(this.speedTimer);
       this.speedTimer = null;
       this.startSpeedTracker();
+      this.fd = fs.openSync(this.outputPath, 'w+');
     };
 
-    // A server without byte-range support cannot safely continue at an offset.
-    // Restart from zero and keep the displayed/file byte counts consistent.
-    if (resumeOffset === 0 && this.downloadedBytes > 0) resetProgress();
-    this.fd = fs.openSync(this.outputPath, resumeOffset > 0 ? 'r+' : 'w');
+    // Without range support a partial file cannot be resumed safely. Start over
+    // once, and avoid retry loops that would repeatedly transfer gigabytes.
+    if (resumeOffset === 0 && this.downloadedBytes > 0) resetFallbackProgress();
+    if (this.fd === null) this.fd = fs.openSync(this.outputPath, resumeOffset > 0 ? 'r+' : 'w+');
+    if (resumeOffset === 0) fs.ftruncateSync(this.fd, 0);
     let responseBytes = 0;
 
     await new Promise((resolve, reject) => {
-      const headers = { 'User-Agent': 'Mozilla/5.0 TurboDownloadManager/1.0' };
+      let settled = false;
+      const finish = (err) => {
+        if (settled) return;
+        settled = true;
+        if (err) reject(err);
+        else resolve();
+      };
+      const headers = {
+        'User-Agent': 'Mozilla/5.0 TurboDownloadManager/1.0',
+        'Accept-Encoding': 'identity'
+      };
       if (resumeOffset > 0) headers.Range = `bytes=${resumeOffset}-`;
       requestWithRedirects(this.url, {
         method: 'GET',
@@ -721,8 +788,9 @@ export class MultiInterfaceDownload {
           // clean restart instead of appending a duplicate copy to the file.
           resumeOffset = 0;
           responseBytes = 0;
-          resetProgress();
-          fs.ftruncateSync(this.fd, 0);
+          this.supportsRanges = false;
+          resetFallbackProgress();
+          this.notify();
         } else if (resumeOffset > 0) {
           const range = res.headers['content-range']?.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
           if (res.statusCode !== 206 || !range || Number(range[1]) !== resumeOffset) {
@@ -741,29 +809,38 @@ export class MultiInterfaceDownload {
         res.on('data', (chunk) => {
           if (this.status !== 'downloading') {
             res.destroy();
-            return resolve();
+            return finish();
           }
-          fs.writeSync(this.fd, chunk, 0, chunk.length, resumeOffset + responseBytes);
-          responseBytes += chunk.length;
-          this.downloadedBytes = resumeOffset + responseBytes;
+          try {
+            fs.writeSync(this.fd, chunk, 0, chunk.length, resumeOffset + responseBytes);
+            responseBytes += chunk.length;
+            this.downloadedBytes = resumeOffset + responseBytes;
+          } catch (writeErr) {
+            res.destroy();
+            finish(new Error(`Could not write the download to disk: ${writeErr.message}`));
+          }
         });
         res.on('end', () => {
           if (this.downloadedBytes === 0) {
-            return reject(new Error('The server returned an empty file; download was not completed'));
+            return finish(new Error('The server returned an empty file; download was not completed'));
           }
           if (this.contentLength > 0 && this.downloadedBytes !== this.contentLength) {
-            return reject(new Error(`Download ended early (${this.downloadedBytes} of ${this.contentLength} bytes)`));
+            return finish(new Error(`Download ended early (${this.downloadedBytes} of ${this.contentLength} bytes)`));
           }
           this.contentLength = this.downloadedBytes;
-          resolve();
+          finish();
         });
         res.on('error', (err) => {
-          if (this.status === 'paused' || this.status === 'cancelled') return resolve();
-          reject(err);
+          if (this.status === 'paused' || this.status === 'cancelled') return finish();
+          finish(err);
+        });
+        res.on('aborted', () => {
+          if (this.status === 'paused' || this.status === 'cancelled') return finish();
+          finish(new Error('The server closed the connection before the file finished downloading'));
         });
       }).catch((err) => {
-        if (this.status === 'paused' || this.status === 'cancelled') return resolve();
-        reject(err);
+        if (this.status === 'paused' || this.status === 'cancelled') return finish();
+        finish(err);
       });
     });
   }

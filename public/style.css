@@ -318,6 +318,7 @@ body {
   border-radius: var(--radius-md);
   padding: 10px 14px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
@@ -360,6 +361,7 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
+  flex: 1 1 100%;
   min-width: 0;
 }
 
@@ -379,6 +381,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -393,6 +396,9 @@ body {
   font-weight: 700;
   color: #f8fafc;
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .status-indicator {
@@ -430,6 +436,7 @@ body {
   display: flex;
   align-items: center;
   gap: 6px;
+  min-width: 0;
 }
 
 .adapter-type-pill {
@@ -441,8 +448,10 @@ body {
 .adapter-right {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  flex-shrink: 0;
+  flex: 1 1 100%;
+  min-width: 0;
 }
 
 .adapter-speed-col {
@@ -475,6 +484,12 @@ body {
   font-size: 0.65rem !important;
   padding: 1px 6px !important;
   border-radius: 3px !important;
+  flex: 0 1 auto;
+  min-width: 0;
+  max-width: min(100%, 220px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 
@@ -974,6 +989,46 @@ body {
   overflow-x: auto;
 }
 
+.history-bulk-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 12px 10px;
+  padding: 10px 12px;
+  border: 1px solid rgba(0, 242, 254, 0.18);
+  border-radius: 10px;
+  background: rgba(0, 242, 254, 0.045);
+}
+
+.history-bulk-toolbar[hidden] {
+  display: none;
+}
+
+.history-selected-count {
+  color: var(--text-main);
+  font-size: 0.78rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.history-bulk-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.history-row-checkbox,
+#historySelectAll {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent-cyan);
+  cursor: pointer;
+  vertical-align: middle;
+}
+
 .history-table {
   width: 100%;
   border-collapse: collapse;
@@ -991,15 +1046,72 @@ body {
   letter-spacing: 0.5px;
 }
 
+.history-table .history-select-cell {
+  width: 38px;
+  padding-left: 8px;
+  padding-right: 8px;
+  text-align: center;
+}
+
 .history-table td {
   padding: 12px 16px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.03);
   color: var(--text-muted);
 }
 
+.history-filename-cell {
+  min-width: 280px;
+}
+
+.history-file-name {
+  display: block;
+  color: #f8fafc;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-error-detail {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+  color: #ffb8c4;
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.history-error-detail > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.history-retry-link {
+  flex: 0 0 auto;
+  border: 0;
+  padding: 0;
+  background: none;
+  color: var(--accent-cyan);
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.history-retry-link:hover,
+.history-retry-link:focus-visible {
+  color: #fff;
+  text-decoration: underline;
+}
+
 .history-table tr:hover td {
   background: rgba(255, 255, 255, 0.02);
   color: var(--text-main);
+}
+
+.history-table tr:has(.history-row-checkbox:checked) td {
+  background: rgba(0, 242, 254, 0.045);
 }
 
 .empty-table-cell {
@@ -1070,6 +1182,99 @@ body {
   gap: 18px;
 }
 
+/* Consistent in-app replacement for browser alert/confirm/prompt dialogs. */
+.app-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 3000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(2, 6, 18, 0.76);
+  backdrop-filter: blur(7px);
+}
+
+.app-dialog-backdrop[hidden],
+.app-dialog [hidden] {
+  display: none !important;
+}
+
+.app-dialog {
+  position: relative;
+  width: min(100%, 460px);
+  padding: 26px;
+  overflow: hidden;
+  color: var(--text-main);
+  background: #0f172a;
+  border: 1px solid rgba(0, 242, 254, 0.38);
+  border-radius: 18px;
+  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.48), 0 0 30px rgba(0, 242, 254, 0.08);
+  animation: modalEnter 0.18s ease-out;
+}
+
+.app-dialog-accent {
+  position: absolute;
+  top: 0;
+  left: 26px;
+  width: 52px;
+  height: 3px;
+  background: linear-gradient(90deg, #00f2fe, #00f5a0);
+  border-radius: 0 0 4px 4px;
+}
+
+.app-dialog-title {
+  margin: 0 0 12px;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.app-dialog-message {
+  margin: 0;
+  color: var(--text-muted);
+  line-height: 1.6;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.app-dialog-input {
+  width: 100%;
+  margin-top: 18px;
+  padding: 11px 13px;
+  color: var(--text-main);
+  background: rgba(2, 6, 18, 0.65);
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+  outline: none;
+}
+
+.app-dialog-input:focus {
+  border-color: #00ddeb;
+  box-shadow: 0 0 0 3px rgba(0, 242, 254, 0.12);
+}
+
+.app-dialog-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.app-dialog-confirm.is-danger {
+  background: linear-gradient(110deg, #ff3366, #ff5a5f);
+  color: #fff;
+}
+
+body.has-app-dialog {
+  overflow: hidden;
+}
+
+@media (max-width: 520px) {
+  .app-dialog { padding: 22px; }
+  .app-dialog-actions { flex-direction: column-reverse; }
+  .app-dialog-actions .btn { width: 100%; }
+}
+
 .form-group {
   display: flex;
   flex-direction: column;
@@ -1118,6 +1323,36 @@ input:focus, select:focus {
   font-size: 0.75rem;
   color: var(--accent-cyan);
   min-height: 16px;
+  white-space: pre-line;
+  line-height: 1.45;
+}
+
+.probe-feedback.is-warning {
+  display: block;
+  margin-top: 5px;
+  padding: 7px 9px;
+  color: #ffd166;
+  background: rgba(255, 184, 0, 0.08);
+  border: 1px solid rgba(255, 184, 0, 0.24);
+  border-radius: 7px;
+}
+
+.probe-feedback.is-error {
+  color: #ff708c;
+}
+
+.task-range-warning {
+  margin-top: 6px;
+  color: #ffd166;
+  font-size: 0.7rem;
+  line-height: 1.35;
+}
+
+.task-action-error {
+  margin-top: 6px;
+  color: #ff8ca2;
+  font-size: 0.72rem;
+  line-height: 1.35;
 }
 
 .modal-iface-list {

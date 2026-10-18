@@ -33,10 +33,24 @@
         <span id="activeJobsCount" class="stat-val mono">0</span>
       </div>
       <div class="stat-col">
-        <span class="stat-label">BONDED ADAPTERS</span>
+        <span class="stat-label">ADAPTERS ONLINE</span>
         <span id="bondedCount" class="stat-val mono">0</span>
       </div>
     </div>
+
+    <div class="adapter-usage" aria-live="polite">
+      <span class="adapter-usage-label">IN USE</span>
+      <span id="adapterUsage" class="adapter-usage-value">No active download</span>
+    </div>
+    <div id="rangeWarning" class="range-warning" hidden>
+      ⚠ This host allows one connection only. If interrupted, the download restarts from the beginning.
+    </div>
+
+    <section id="downloadSection" class="downloads-section" aria-live="polite" hidden>
+      <h5 id="downloadSectionTitle">Downloads</h5>
+      <div id="downloadList" class="download-list"></div>
+      <div id="downloadError" class="download-error" role="alert" hidden></div>
+    </section>
 
     <!-- Settings & Toggles -->
     <div class="toggle-list">
@@ -44,16 +58,16 @@
         <span>Use Turbo for browser downloads</span>
         <input type="checkbox" id="chkIntercept" checked>
       </label>
-      <p class="toggle-hint">On: choose a folder and download in Turbo. Off: use your browser's normal save settings.</p>
+      <p class="toggle-hint">On: supported web downloads go only through Turbo; unsupported types stop. If Turbo is unavailable, the download stops. Off: use your browser's normal save settings.</p>
     </div>
 
     <!-- Action Buttons -->
     <div class="action-buttons">
-      <button id="btnOpenDashboard" class="btn btn-primary">
-        Open Desktop App
+      <button id="btnOpenApp" class="btn btn-primary">
+        Open in App
       </button>
-      <button id="btnDownloadCurrentTab" class="btn btn-glass">
-        Download Current Page
+      <button id="btnOpenTab" class="btn btn-glass">
+        Open in Tab
       </button>
     </div>
   </div>

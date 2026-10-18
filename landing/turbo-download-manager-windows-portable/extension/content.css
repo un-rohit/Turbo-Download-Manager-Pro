@@ -1,0 +1,37 @@
+.turbo-video-grabber {
+  position: absolute;
+  z-index: 2147483647;
+  background: rgba(15, 23, 42, 0.92);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgba(0, 242, 254, 0.4);
+  border-radius: 8px;
+  padding: 6px 12px;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 10px rgba(0, 242, 254, 0.2);
+  cursor: pointer;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f8fafc;
+  display: flex;
+  align-items: center;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  user-select: none;
+}
+
+.turbo-video-grabber:hover {
+  background: rgba(30, 41, 69, 0.96);
+  border-color: #00f2fe;
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(0, 242, 254, 0.35);
+}
+
+.turbo-grabber-content {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.turbo-grabber-icon {
+  color: #00f2fe;
+  font-size: 14px;
+}
