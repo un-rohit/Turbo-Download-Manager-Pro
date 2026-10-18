@@ -32,21 +32,49 @@ chrome.storage.onChanged.addListener((changes) => {
 });
 
 // Forward URL to Turbo Download Manager Server.
+async function readJsonResponse(response, endpoint) {
+  const body = await response.text();
+  try {
+    return JSON.parse(body);
+  } catch {
+    const contentType = response.headers.get('content-type') || 'unknown content type';
+    throw new Error(`${endpoint} returned HTML or invalid JSON (${contentType})`);
+  }
+}
+
 async function sendToTurboDownloader(url, filename, chooseFolder = false) {
   try {
-    const res = await fetch(`${SERVER_URL}${chooseFolder ? '/api/downloads/from-extension' : '/api/downloads'}`, {
+    let outputDir;
+    if (chooseFolder) {
+      const folderResponse = await fetch(`${SERVER_URL}/api/browse-folder`, { method: 'POST' });
+      if (folderResponse.ok) {
+        try {
+          const folderResult = await readJsonResponse(folderResponse, 'Folder picker');
+          if (folderResult.path === null) return { success: false, canceled: true };
+          outputDir = folderResult.path || undefined;
+        } catch (err) {
+          // Older app builds may not expose the folder-picker route. Still
+          // send the transfer through Turbo using its configured save folder.
+          console.warn('[Turbo Download Manager Extension] Folder picker unavailable; using the app default folder:', err.message);
+        }
+      } else {
+        console.warn(`[Turbo Download Manager Extension] Folder picker returned ${folderResponse.status}; using the app default folder`);
+      }
+    }
+
+    const res = await fetch(`${SERVER_URL}/api/downloads`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         url,
         filename: filename || undefined,
-        connectionsPerInterface: 2,
-        chooseFolder
+        outputDir,
+        connectionsPerInterface: 2
       })
     });
 
     if (!res.ok) throw new Error(`Server returned ${res.status}`);
-    const data = await res.json();
+    const data = await readJsonResponse(res, 'Download API');
     if (data.canceled) return { success: false, canceled: true };
     return { success: true, task: data };
   } catch (err) {

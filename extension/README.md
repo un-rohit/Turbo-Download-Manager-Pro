@@ -4,6 +4,7 @@ This extension integrates your browser with the **Turbo Download Manager** deskt
 
 - Browser downloads are handed to Turbo before Chrome/Edge starts saving. Turbo asks you to choose a destination folder, then downloads the file itself.
 - Turn **Use Turbo for browser downloads** off in the extension popup to restore your browser's normal save behavior.
+
 1. **Automatic Download Interception**: Catches browser downloads and routes them through multi-interface bonded downloading.
 2. **Right-Click Context Menu**: Right-click any link, video, or image and select `⚡ Download with Turbo Download Manager`.
 3. **On-Hover Media Grabber**: Automatically shows a download button on web videos and audio files.

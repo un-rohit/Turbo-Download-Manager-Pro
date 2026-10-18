@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { exec, execFile, spawn } from 'node:child_process';
+import { exec, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { getNetworkInterfaces } from './engine/network.js';
 import { probeUrl } from './engine/downloader.js';
@@ -227,30 +227,6 @@ function parseJsonBody(req) {
   });
 }
 
-function quotePowerShellString(value) {
-  return `'${String(value || '').replace(/'/g, "''")}'`;
-}
-
-function chooseDownloadFolder(initialPath) {
-  const script = [
-    "$ErrorActionPreference = 'Stop'",
-    'Add-Type -AssemblyName System.Windows.Forms',
-    '$dialog = New-Object System.Windows.Forms.FolderBrowserDialog',
-    "$dialog.Description = 'Choose where Turbo Download Manager should save this download'",
-    '$dialog.ShowNewFolderButton = $true',
-    `$dialog.SelectedPath = ${quotePowerShellString(initialPath)}`,
-    'if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::WriteLine($dialog.SelectedPath) }'
-  ].join('; ');
-  const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
-
-  return new Promise((resolve, reject) => {
-    execFile('powershell.exe', ['-NoProfile', '-STA', '-EncodedCommand', encodedScript], { windowsHide: true }, (err, stdout) => {
-      if (err) return reject(err);
-      resolve((stdout || '').trim() || null);
-    });
-  });
-}
-
 export async function handleRequest(req, res) {
   const origin = req.headers.origin;
   if (origin && !isAllowedRequestOrigin(origin)) {
@@ -438,34 +414,6 @@ export async function handleRequest(req, res) {
   }
 
   // Create Download Task
-  if (url.pathname === '/api/downloads/from-extension' && req.method === 'POST') {
-    try {
-      const body = await parseJsonBody(req);
-      if (!body.url || !/^https?:\/\//i.test(body.url)) {
-        return sendJson(res, 400, { error: 'A valid HTTP(S) download URL is required' });
-      }
-
-      const settings = getSettings();
-      const filename = path.basename(String(body.filename || 'download').replace(/[\\/]/g, path.sep));
-      const category = resolveCategoryFolder(filename, settings);
-      const outputDir = await chooseDownloadFolder(category.folder);
-      if (!outputDir) return sendJson(res, 200, { canceled: true });
-
-      fs.mkdirSync(outputDir, { recursive: true });
-      const task = downloadManager.createDownload({
-        url: body.url,
-        filename,
-        outputDir,
-        interfaces: [],
-        connectionsPerInterface: body.connectionsPerInterface || settings.connectionsPerAdapter || 4
-      });
-
-      return sendJson(res, 201, task.getSnapshot());
-    } catch (err) {
-      return sendJson(res, 500, { error: err.message });
-    }
-  }
-
   if (url.pathname === '/api/downloads' && req.method === 'POST') {
     try {
       const body = await parseJsonBody(req);
