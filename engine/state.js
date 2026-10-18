@@ -6,14 +6,35 @@ class DownloadManager {
   constructor() {
     this.downloads = new Map();
     this.historyFile = path.join(process.cwd(), 'downloads-history.json');
+    this.historyNeedsRepair = false;
     this.history = this.loadHistory();
+    if (this.historyNeedsRepair) this.saveHistory();
     this.globalListeners = new Set();
   }
 
   loadHistory() {
     try {
       if (fs.existsSync(this.historyFile)) {
-        return JSON.parse(fs.readFileSync(this.historyFile, 'utf8'));
+        const saved = JSON.parse(fs.readFileSync(this.historyFile, 'utf8'));
+        if (!Array.isArray(saved)) return [];
+        if (saved.length > 50) this.historyNeedsRepair = true;
+        return saved.slice(0, 50).map((item) => {
+          if (item.status !== 'completed' || Number(item.downloadedBytes ?? item.contentLength) > 0) {
+            return item;
+          }
+
+          let fileSize = 0;
+          try {
+            const filePath = item.outputPath && path.resolve(item.outputPath);
+            if (filePath && fs.existsSync(filePath)) fileSize = fs.statSync(filePath).size;
+          } catch {}
+
+          this.historyNeedsRepair = true;
+          if (fileSize > 0) {
+            return { ...item, contentLength: fileSize, downloadedBytes: fileSize };
+          }
+          return { ...item, status: 'error', downloadedBytes: 0, error: 'No file data was saved' };
+        });
       }
     } catch {}
     return [];
@@ -51,7 +72,9 @@ class DownloadManager {
           filename: snapshot.filename,
           outputPath: snapshot.outputPath,
           contentLength: snapshot.contentLength,
+          downloadedBytes: snapshot.downloadedBytes,
           status: snapshot.status,
+          error: snapshot.error || null,
           completedAt: new Date().toISOString()
         };
         if (existingIdx >= 0) {
@@ -59,6 +82,8 @@ class DownloadManager {
         } else {
           this.history.unshift(item);
         }
+        this.history = this.history.slice(0, 50);
+        this.downloads.delete(snapshot.id);
         this.saveHistory();
       }
     });
@@ -77,6 +102,18 @@ class DownloadManager {
 
   getHistory() {
     return this.history;
+  }
+
+  removeHistoryItem(id) {
+    const index = this.history.findIndex(item => item.id === id);
+    if (index < 0) return false;
+    this.history.splice(index, 1);
+    this.saveHistory();
+    return true;
+  }
+
+  getHistoryItem(id) {
+    return this.history.find(item => item.id === id) || null;
   }
 
   pause(id) {

@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Turbo Download Manager Integration Module",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Seamlessly intercepts browser downloads and media streams into Turbo Download Manager multi-interface accelerator.",
   "permissions": [
     "downloads",

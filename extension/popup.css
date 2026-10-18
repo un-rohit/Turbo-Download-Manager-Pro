@@ -161,6 +161,13 @@ body {
   cursor: pointer;
 }
 
+.toggle-hint {
+  margin-top: 6px;
+  color: var(--text-faint);
+  font-size: 0.68rem;
+  line-height: 1.4;
+}
+
 .action-buttons {
   display: flex;
   flex-direction: column;

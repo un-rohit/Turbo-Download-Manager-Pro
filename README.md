@@ -48,12 +48,18 @@ It features complete **100% IDM (Internet Download Manager) compatibility**, a r
 git clone https://github.com/un-rohit/Turbo-Download-Manager-Pro.git
 cd Turbo-Download-Manager-Pro
 
-# 2. Launch the bonding server and desktop UI
+# 2. Launch the bonding server and dashboard in Edge app mode (Node.js 18+)
 npm start
 
-# 3. Or launch native Electron window
+# 3. Or launch through the Windows app-mode helper
+npm run app
+
+# 4. Optional: install desktop build tools, then launch the native Electron window
+npm install
 npm run electron
 ```
+
+The core server needs Node.js 18+. The optional Electron development and packaging tools use the current Electron toolchain and require Node.js 22.12 or newer.
 
 ---
 

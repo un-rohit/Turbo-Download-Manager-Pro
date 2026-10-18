@@ -31,21 +31,23 @@ chrome.storage.onChanged.addListener((changes) => {
   }
 });
 
-// Forward URL to Turbo Download Manager Server
-async function sendToTurboDownloader(url, filename) {
+// Forward URL to Turbo Download Manager Server.
+async function sendToTurboDownloader(url, filename, chooseFolder = false) {
   try {
-    const res = await fetch(`${SERVER_URL}/api/downloads`, {
+    const res = await fetch(`${SERVER_URL}${chooseFolder ? '/api/downloads/from-extension' : '/api/downloads'}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         url,
         filename: filename || undefined,
-        connectionsPerInterface: 2
+        connectionsPerInterface: 2,
+        chooseFolder
       })
     });
 
     if (!res.ok) throw new Error(`Server returned ${res.status}`);
     const data = await res.json();
+    if (data.canceled) return { success: false, canceled: true };
     return { success: true, task: data };
   } catch (err) {
     console.error('[Turbo Download Manager Extension] Failed to send download:', err);
@@ -53,33 +55,41 @@ async function sendToTurboDownloader(url, filename) {
   }
 }
 
-// 1. Intercept Browser Downloads
-chrome.downloads.onCreated.addListener(async (item) => {
-  // Check if interception is active
-  const { interceptEnabled: isEnabled } = await chrome.storage.local.get('interceptEnabled');
-  if (isEnabled === false) return;
-
-  // Don't intercept data: or blob: URLs or internal browser extensions
-  if (!item.url || item.url.startsWith('data:') || item.url.startsWith('blob:') || item.url.startsWith('chrome-extension:')) {
+// Intercept before Chrome opens its Save As dialog. The app's folder picker
+// chooses the destination, then the native browser transfer is cancelled.
+chrome.downloads.onDeterminingFilename.addListener((item, suggest) => {
+  if (!interceptEnabled || !item.url || !/^https?:\/\//i.test(item.url)) {
+    suggest();
     return;
   }
 
-  // Cancel the native Chrome download immediately
-  try {
-    chrome.downloads.cancel(item.id, async () => {
-      chrome.downloads.erase({ id: item.id });
+  // The manager only supports HTTP(S); let the browser handle local, blob,
+  // extension, FTP, and other non-HTTP downloads itself.
+  (async () => {
+    const filename = (item.filename || '').split(/[\\/]/).pop() || 'download';
+    try {
+      // Re-read storage to avoid a stale service-worker value after the user
+      // has just switched the toggle off.
+      const { interceptEnabled: isEnabled } = await chrome.storage.local.get('interceptEnabled');
+      if (isEnabled === false) return;
 
-      const result = await sendToTurboDownloader(item.url, item.filename);
-      if (result.success) {
-        showBadge('⚡', '#00f2fe');
-      } else {
-        // If Turbo Download Manager server is offline, resume standard download
-        console.warn('[Turbo Download Manager Extension] Server unreachable, falling back to native browser download');
+      const result = await sendToTurboDownloader(item.url, filename, true);
+      if (!result.success) {
+        if (!result.canceled) console.warn('[Turbo Download Manager Extension] Manager rejected the download; keeping the native browser download');
+        return;
       }
-    });
-  } catch (err) {
-    console.error('[Turbo Download Manager Extension] Error cancelling download:', err);
-  }
+
+      await chrome.downloads.cancel(item.id);
+      chrome.downloads.erase({ id: item.id });
+      showBadge('⚡', '#00f2fe');
+    } catch (err) {
+      console.warn('[Turbo Download Manager Extension] Could not hand off download:', err);
+    } finally {
+      // Chrome requires exactly one suggest() call, including on fallback.
+      suggest({ filename, conflictAction: 'uniquify' });
+    }
+  })();
+  return true;
 });
 
 // 2. Context Menu Click Handler
@@ -87,7 +97,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   const targetUrl = info.linkUrl || info.srcUrl;
   if (!targetUrl) return;
 
-  const result = await sendToTurboDownloader(targetUrl);
+  const result = await sendToTurboDownloader(targetUrl, undefined, true);
   if (result.success) {
     showBadge('OK', '#00f5a0');
   } else {
@@ -98,7 +108,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 // 3. Listen for Messages from Content Scripts / Popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'downloadUrl') {
-    sendToTurboDownloader(request.url, request.filename).then(sendResponse);
+    sendToTurboDownloader(request.url, request.filename, true).then(sendResponse);
     return true; // Keep channel open for async response
   }
 });

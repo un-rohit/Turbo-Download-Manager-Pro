@@ -2,7 +2,7 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import os from 'node:os';
-import { exec, spawn } from 'node:child_process';
+import { exec, execFile, spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { getNetworkInterfaces } from './engine/network.js';
 import { probeUrl } from './engine/downloader.js';
@@ -28,6 +28,27 @@ const MIME_TYPES = {
 };
 
 const sseClients = new Set();
+let verifiedInterfacesCache = null;
+let verifiedInterfacesCacheExpiresAt = 0;
+let verifiedInterfacesScanPromise = null;
+
+async function getVerifiedNetworkInterfaces(forceRefresh = false) {
+  if (!forceRefresh && verifiedInterfacesCache && Date.now() < verifiedInterfacesCacheExpiresAt) {
+    return verifiedInterfacesCache;
+  }
+  if (verifiedInterfacesScanPromise) return verifiedInterfacesScanPromise;
+
+  verifiedInterfacesScanPromise = getNetworkInterfaces(true)
+    .then((interfaces) => {
+      verifiedInterfacesCache = interfaces;
+      verifiedInterfacesCacheExpiresAt = Date.now() + 15000;
+      return interfaces;
+    })
+    .finally(() => {
+      verifiedInterfacesScanPromise = null;
+    });
+  return verifiedInterfacesScanPromise;
+}
 
 function broadcastSSE(event, data) {
   const payload = `event: ${event}\ndata: ${JSON.stringify(data)}\n\n`;
@@ -180,6 +201,16 @@ function sendJson(res, statusCode, data) {
   res.end(JSON.stringify(data));
 }
 
+function isAllowedRequestOrigin(origin) {
+  if (origin === `http://127.0.0.1:${PORT}` || origin === `http://localhost:${PORT}`) return true;
+  return /^chrome-extension:\/\/[a-p]{32}$/.test(origin) || /^moz-extension:\/\/[0-9a-f-]{36}$/i.test(origin);
+}
+
+function isPathInside(root, candidate) {
+  const relative = path.relative(path.resolve(root), path.resolve(candidate));
+  return relative === '' || (relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative));
+}
+
 function parseJsonBody(req) {
   return new Promise((resolve) => {
     let body = '';
@@ -196,9 +227,41 @@ function parseJsonBody(req) {
   });
 }
 
+function quotePowerShellString(value) {
+  return `'${String(value || '').replace(/'/g, "''")}'`;
+}
+
+function chooseDownloadFolder(initialPath) {
+  const script = [
+    "$ErrorActionPreference = 'Stop'",
+    'Add-Type -AssemblyName System.Windows.Forms',
+    '$dialog = New-Object System.Windows.Forms.FolderBrowserDialog',
+    "$dialog.Description = 'Choose where Turbo Download Manager should save this download'",
+    '$dialog.ShowNewFolderButton = $true',
+    `$dialog.SelectedPath = ${quotePowerShellString(initialPath)}`,
+    'if ($dialog.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK) { [Console]::WriteLine($dialog.SelectedPath) }'
+  ].join('; ');
+  const encodedScript = Buffer.from(script, 'utf16le').toString('base64');
+
+  return new Promise((resolve, reject) => {
+    execFile('powershell.exe', ['-NoProfile', '-STA', '-EncodedCommand', encodedScript], { windowsHide: true }, (err, stdout) => {
+      if (err) return reject(err);
+      resolve((stdout || '').trim() || null);
+    });
+  });
+}
+
 export async function handleRequest(req, res) {
-  // CORS
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  const origin = req.headers.origin;
+  if (origin && !isAllowedRequestOrigin(origin)) {
+    return sendJson(res, 403, { error: 'Cross-origin requests are not allowed' });
+  }
+
+  // Permit the local dashboard and installed browser extension only.
+  if (origin) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -218,8 +281,8 @@ export async function handleRequest(req, res) {
       return fs.createReadStream(landingFile).pipe(res);
     }
     const cleanPath = url.pathname.replace(/^\/landing\//, '').replace(/^\//, '');
-    const checkLandingAsset = path.join(LANDING_DIR, cleanPath);
-    if (fs.existsSync(checkLandingAsset) && fs.statSync(checkLandingAsset).isFile()) {
+    const checkLandingAsset = path.resolve(LANDING_DIR, cleanPath);
+    if (isPathInside(LANDING_DIR, checkLandingAsset) && fs.existsSync(checkLandingAsset) && fs.statSync(checkLandingAsset).isFile()) {
       const ext = path.extname(checkLandingAsset).toLowerCase();
       const contentType = MIME_TYPES[ext] || 'application/octet-stream';
       res.writeHead(200, { 'Content-Type': contentType });
@@ -345,7 +408,11 @@ export async function handleRequest(req, res) {
   // Network Interfaces API
   if (url.pathname === '/api/interfaces') {
     try {
-      const ifaces = await getNetworkInterfaces(true);
+      const verifyConnectivity = url.searchParams.get('verify') !== 'false';
+      const forceRefresh = url.searchParams.get('refresh') === 'true';
+      const ifaces = verifyConnectivity
+        ? await getVerifiedNetworkInterfaces(forceRefresh)
+        : await getNetworkInterfaces(false);
       return sendJson(res, 200, { interfaces: ifaces });
     } catch (err) {
       return sendJson(res, 500, { error: err.message });
@@ -371,6 +438,34 @@ export async function handleRequest(req, res) {
   }
 
   // Create Download Task
+  if (url.pathname === '/api/downloads/from-extension' && req.method === 'POST') {
+    try {
+      const body = await parseJsonBody(req);
+      if (!body.url || !/^https?:\/\//i.test(body.url)) {
+        return sendJson(res, 400, { error: 'A valid HTTP(S) download URL is required' });
+      }
+
+      const settings = getSettings();
+      const filename = path.basename(String(body.filename || 'download').replace(/[\\/]/g, path.sep));
+      const category = resolveCategoryFolder(filename, settings);
+      const outputDir = await chooseDownloadFolder(category.folder);
+      if (!outputDir) return sendJson(res, 200, { canceled: true });
+
+      fs.mkdirSync(outputDir, { recursive: true });
+      const task = downloadManager.createDownload({
+        url: body.url,
+        filename,
+        outputDir,
+        interfaces: [],
+        connectionsPerInterface: body.connectionsPerInterface || settings.connectionsPerAdapter || 4
+      });
+
+      return sendJson(res, 201, task.getSnapshot());
+    } catch (err) {
+      return sendJson(res, 500, { error: err.message });
+    }
+  }
+
   if (url.pathname === '/api/downloads' && req.method === 'POST') {
     try {
       const body = await parseJsonBody(req);
@@ -412,6 +507,34 @@ export async function handleRequest(req, res) {
       active: downloadManager.getAllActive(),
       history: downloadManager.getHistory()
     });
+  }
+
+  const historyActionMatch = url.pathname.match(/^\/api\/download-history\/([^/]+)\/(remove|delete-file)$/);
+  if (historyActionMatch && req.method === 'POST') {
+    const [, historyId, action] = historyActionMatch;
+    const item = downloadManager.getHistoryItem(historyId);
+    if (!item) return sendJson(res, 404, { error: 'Download history item not found' });
+
+    if (action === 'delete-file') {
+      try {
+        if (item.outputPath) {
+          const filePath = path.resolve(item.outputPath);
+          if (fs.existsSync(filePath)) {
+            if (!fs.statSync(filePath).isFile()) {
+              return sendJson(res, 400, { error: 'The saved path is not a file' });
+            }
+            fs.unlinkSync(filePath);
+          }
+        }
+        downloadManager.removeHistoryItem(historyId);
+        return sendJson(res, 200, { ok: true, fileDeleted: true });
+      } catch (err) {
+        return sendJson(res, 500, { error: `Could not delete downloaded file: ${err.message}` });
+      }
+    }
+
+    downloadManager.removeHistoryItem(historyId);
+    return sendJson(res, 200, { ok: true, fileDeleted: false });
   }
 
   const pauseMatch = url.pathname.match(/^\/api\/downloads\/([^/]+)\/pause$/);
@@ -522,8 +645,8 @@ export async function handleRequest(req, res) {
     const relPath = url.pathname === '/landing' || url.pathname === '/landing/' 
       ? 'index.html' 
       : url.pathname.replace(/^\/landing\//, '');
-    let landingFilePath = path.join(LANDING_DIR, relPath);
-    if (!landingFilePath.startsWith(LANDING_DIR)) {
+    let landingFilePath = path.resolve(LANDING_DIR, relPath);
+    if (!isPathInside(LANDING_DIR, landingFilePath)) {
       res.writeHead(403);
       return res.end('Forbidden');
     }
@@ -547,8 +670,8 @@ export async function handleRequest(req, res) {
   }
 
   // Dashboard Static File Serving
-  let filePath = path.join(PUBLIC_DIR, url.pathname === '/' ? 'index.html' : url.pathname);
-  if (!filePath.startsWith(PUBLIC_DIR)) {
+  let filePath = path.resolve(PUBLIC_DIR, url.pathname === '/' ? 'index.html' : url.pathname.replace(/^\/+/, ''));
+  if (!isPathInside(PUBLIC_DIR, filePath)) {
     res.writeHead(403);
     return res.end('Forbidden');
   }

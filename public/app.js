@@ -4,6 +4,15 @@ let selectedInterfaces = new Set();
 let activeDownloads = new Map();
 let downloadHistory = [];
 let probedData = null;
+const speedTestResults = new Map();
+const downloadMenuOrigins = new WeakMap();
+const expandedDownloadDetails = new Set();
+let adapterScanInitialized = false;
+let adapterScanInProgress = false;
+let adapterScanTimer = null;
+const promptedAdapterAddresses = new Set();
+const pendingAdapterPrompts = [];
+let activeAdapterPrompt = null;
 
 // Color Palette for Segment Visualization (per interface)
 const INTERFACE_COLORS = [
@@ -28,6 +37,16 @@ function formatSpeed(bytesPerSec) {
   return `${formatBytes(bytesPerSec)}/s`;
 }
 
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    '"': '&quot;',
+    "'": '&#39;'
+  })[character]);
+}
+
 function formatEta(seconds) {
   if (!seconds || seconds <= 0 || !isFinite(seconds)) return '--';
   if (seconds < 60) return `${seconds}s`;
@@ -39,27 +58,87 @@ function formatEta(seconds) {
 }
 
 // 1. Fetch & Render Network Interfaces
-async function loadInterfaces() {
+function queueNewAdapterPrompt(iface) {
+  if (!iface?.address || selectedInterfaces.has(iface.address) || promptedAdapterAddresses.has(iface.address)) return;
+  promptedAdapterAddresses.add(iface.address);
+  pendingAdapterPrompts.push(iface);
+  showNextAdapterPrompt();
+}
+
+function showNextAdapterPrompt() {
+  if (activeAdapterPrompt || pendingAdapterPrompts.length === 0) return;
+  const prompt = document.getElementById('newAdapterPrompt');
+  const message = document.getElementById('newAdapterPromptMessage');
+  if (!prompt || !message) return;
+
+  activeAdapterPrompt = pendingAdapterPrompts.shift();
+  const routeStatus = activeAdapterPrompt.online ? 'is online' : 'has no verified internet route yet';
+  message.textContent = `${activeAdapterPrompt.name} (${activeAdapterPrompt.label}) was detected and ${routeStatus}. Use it for new downloads?`;
+  prompt.hidden = false;
+}
+
+function resolveNewAdapterPrompt(useAdapter) {
+  const iface = activeAdapterPrompt;
+  activeAdapterPrompt = null;
+  const prompt = document.getElementById('newAdapterPrompt');
+  if (prompt) prompt.hidden = true;
+
+  if (useAdapter && iface && networkInterfaces.some(item => item.address === iface.address) && !selectedInterfaces.has(iface.address)) {
+    window.toggleAdapter(iface.address);
+  }
+
+  window.setTimeout(showNextAdapterPrompt, 120);
+}
+
+async function loadInterfaces(options = {}) {
+  if (adapterScanInProgress) return;
+  adapterScanInProgress = true;
+  const silent = options?.silent === true;
   const spinner = document.getElementById('scanSpinner');
-  if (spinner) spinner.style.display = 'inline-block';
+  if (spinner && !silent) spinner.style.display = 'inline-block';
 
   try {
-    const res = await fetch('/api/interfaces');
+    const res = await fetch(options?.silent ? '/api/interfaces' : '/api/interfaces?refresh=true');
+    if (!res.ok) throw new Error(`Adapter scan failed with HTTP ${res.status}`);
     const data = await res.json();
-    networkInterfaces = data.interfaces || [];
+    const wasInitialized = adapterScanInitialized;
+    const previousAddresses = new Set(networkInterfaces.map(iface => iface.address));
+    const nextInterfaces = data.interfaces || [];
 
-    // Pre-select online interfaces by default
-    selectedInterfaces.clear();
-    networkInterfaces.forEach(iface => {
-      if (iface.online) selectedInterfaces.add(iface.address);
-    });
+    if (!adapterScanInitialized) {
+      // Preserve the current startup behavior for adapters already connected when the app opens.
+      selectedInterfaces.clear();
+      nextInterfaces.forEach(iface => {
+        if (iface.online) selectedInterfaces.add(iface.address);
+      });
+      adapterScanInitialized = true;
+    } else {
+      const presentAddresses = new Set(nextInterfaces.map(iface => iface.address));
+      for (const address of selectedInterfaces) {
+        if (!presentAddresses.has(address)) selectedInterfaces.delete(address);
+      }
+    }
+
+    networkInterfaces = nextInterfaces;
 
     renderAdapters();
     updateHeaderHud();
+
+    if (wasInitialized) {
+      networkInterfaces.forEach(iface => {
+        if (!previousAddresses.has(iface.address)) queueNewAdapterPrompt(iface);
+      });
+    }
   } catch (err) {
     console.error('Error fetching interfaces:', err);
   } finally {
-    if (spinner) spinner.style.display = 'none';
+    if (spinner && !silent) spinner.style.display = 'none';
+    adapterScanInProgress = false;
+    if (!adapterScanTimer) {
+      adapterScanTimer = window.setInterval(() => {
+        if (!document.hidden) loadInterfaces({ silent: true });
+      }, 15000);
+    }
   }
 }
 
@@ -76,22 +155,25 @@ function renderAdapters() {
     const isSelected = selectedInterfaces.has(iface.address);
     const color = INTERFACE_COLORS[index % INTERFACE_COLORS.length];
     const safeId = iface.address.replace(/[^a-zA-Z0-9]/g, '_');
+    const name = escapeHtml(iface.name || 'Network adapter');
+    const label = escapeHtml(iface.label || 'Network adapter');
+    const icon = escapeHtml(iface.icon || '📶');
     const statusClass = !isSelected ? 'paused' : (iface.online ? 'online' : 'offline');
 
     return `
       <div class="adapter-compact-card ${isSelected ? 'active-bonded' : 'adapter-paused'}" id="adapter-${safeId}">
         <div class="adapter-left">
           <div class="adapter-icon-box-compact" style="color: ${isSelected ? color : '#64748b'}">
-            ${iface.icon}
+            ${icon}
           </div>
           <div class="adapter-info-compact">
             <div class="adapter-name-row">
-              <span class="adapter-name-text">${iface.name}</span>
+              <span class="adapter-name-text">${name}</span>
               <span class="status-indicator ${statusClass}" title="${!isSelected ? 'Paused' : (iface.online ? 'Online' : 'No Route')}"></span>
               ${!isSelected ? '<span class="paused-tag">PAUSED</span>' : ''}
             </div>
             <div class="adapter-sub-row">
-              <span class="adapter-type-pill">${iface.label}</span>
+              <span class="adapter-type-pill">${label}</span>
               <span id="speedtest-badge-${safeId}" class="speedtest-result-badge compact-badge" style="display: none;"></span>
             </div>
           </div>
@@ -117,6 +199,11 @@ function renderAdapters() {
       </div>
     `;
   }).join('');
+
+  for (const iface of networkInterfaces) {
+    const result = speedTestResults.get(iface.address);
+    if (result) applySpeedTestResult(iface.address, result);
+  }
 }
 
 window.toggleAdapter = async function(address) {
@@ -177,6 +264,7 @@ function initSSE() {
 
   es.addEventListener('init', (e) => {
     const data = JSON.parse(e.data);
+    activeDownloads.clear();
     data.active.forEach(item => activeDownloads.set(item.id, item));
     downloadHistory = data.history || [];
     renderActiveDownloads();
@@ -185,13 +273,16 @@ function initSSE() {
 
   es.addEventListener('download_update', (e) => {
     const item = JSON.parse(e.data);
-    activeDownloads.set(item.id, item);
 
     if (item.status === 'completed' || item.status === 'error') {
+      activeDownloads.delete(item.id);
       const idx = downloadHistory.findIndex(h => h.id === item.id);
       if (idx >= 0) downloadHistory[idx] = item;
       else downloadHistory.unshift(item);
+      downloadHistory = downloadHistory.slice(0, 50);
       renderHistory();
+    } else {
+      activeDownloads.set(item.id, item);
     }
 
     renderActiveDownloads();
@@ -245,9 +336,10 @@ function initSSE() {
       if (data.address) {
         const iface = networkInterfaces.find(i => i.address === data.address);
         if (iface) {
+          const wasOnline = iface.online;
           iface.online = !!data.online;
-          if (iface.online && !selectedInterfaces.has(iface.address)) {
-            selectedInterfaces.add(iface.address);
+          if (iface.online && !wasOnline) {
+            queueNewAdapterPrompt(iface);
           }
           renderAdapters();
           updateHeaderHud();
@@ -273,6 +365,24 @@ function updateGlobalSpeed() {
           adapterSpeeds[iface.address] = (adapterSpeeds[iface.address] || 0) + (iface.currentSpeed || 0);
         });
       }
+    }
+  }
+
+  // Windows may report aggregate download throughput while per-adapter byte
+  // counters remain zero (for example when traffic uses the default route).
+  // Attribute only the unreported portion across enabled adapters so the flow
+  // canvas still reflects active downloads without inflating the total.
+  const attributedSpeed = Object.values(adapterSpeeds).reduce((sum, speed) => sum + speed, 0);
+  const unreportedSpeed = Math.max(0, totalSpeed - attributedSpeed);
+  if (unreportedSpeed > 0) {
+    const eligibleInterfaces = networkInterfaces.filter(iface =>
+      selectedInterfaces.size === 0 ? iface.online : selectedInterfaces.has(iface.address)
+    );
+    if (eligibleInterfaces.length > 0) {
+      const share = unreportedSpeed / eligibleInterfaces.length;
+      eligibleInterfaces.forEach(iface => {
+        adapterSpeeds[iface.address] = (adapterSpeeds[iface.address] || 0) + share;
+      });
     }
   }
 
@@ -313,6 +423,10 @@ function renderActiveDownloads() {
   if (!container) return;
 
   const inFlight = Array.from(activeDownloads.values()).filter(d => d.status === 'downloading' || d.status === 'probing' || d.status === 'paused');
+  const activeIds = new Set(inFlight.map(item => item.id));
+  for (const id of expandedDownloadDetails) {
+    if (!activeIds.has(id)) expandedDownloadDetails.delete(id);
+  }
   if (badge) badge.textContent = `${inFlight.length} IN FLIGHT`;
 
   if (inFlight.length === 0) {
@@ -329,83 +443,101 @@ function renderActiveDownloads() {
 
   container.innerHTML = inFlight.map(item => {
     const percent = (item.progress * 100).toFixed(1);
+    const filename = escapeHtml(item.filename || 'download.bin');
     const isPaused = item.status === 'paused';
+    const showDetails = expandedDownloadDetails.has(item.id);
 
     // Segment block map
-    const segmentsHtml = (item.segments || []).map((seg, idx) => {
+    const segmentsHtml = showDetails ? (item.segments || []).map(seg => {
       let stateClass = '';
       if (seg.done) stateClass = 'done';
       else if (seg.active && !isPaused) stateClass = 'in-flight';
 
       return `<div class="segment-block ${stateClass}" title="Segment ${seg.id}: ${formatBytes(seg.downloaded)} / ${formatBytes(seg.total)}">${seg.id}</div>`;
-    }).join('');
+    }).join('') : '';
 
     // Per-interface contribution pills with individual pause/resume controls
-    const contribsHtml = (item.interfaces || []).map((iface, idx) => {
+    const contribsHtml = showDetails ? (item.interfaces || []).map((iface, idx) => {
       const isIfacePaused = !!iface.paused;
       const color = INTERFACE_COLORS[idx % INTERFACE_COLORS.length];
       return `
         <div class="contrib-pill ${isIfacePaused ? 'contrib-pill-paused' : ''}">
           <span class="contrib-dot" style="background: ${isIfacePaused ? '#ffb800' : color}"></span>
-          <span><strong>${iface.name}</strong>: ${formatBytes(iface.bytesDownloaded)} (${isIfacePaused ? '<span style="color:#ffb800;">PAUSED</span>' : (isPaused ? '0 B/s' : formatSpeed(iface.currentSpeed))})</span>
+          <span><strong>${escapeHtml(iface.name || 'Network adapter')}</strong>: ${formatBytes(iface.bytesDownloaded)} (${isIfacePaused ? '<span style="color:#ffb800;">PAUSED</span>' : (isPaused ? '0 B/s' : formatSpeed(iface.currentSpeed))})</span>
           <button type="button" class="btn btn-xs ${isIfacePaused ? 'btn-resume-device' : 'btn-pause-device'}" onclick="toggleDownloadInterface('${item.id}', '${iface.address}', ${isIfacePaused})" title="${isIfacePaused ? 'Resume this device — it will resume downloading' : 'Pause this device — other devices will complete its download'}">
             ${isIfacePaused ? '▶ Resume' : '⏸ Pause'}
           </button>
         </div>
       `;
-    }).join('');
+    }).join('') : '';
+
+    const connectionCount = (item.interfaces || []).length;
+    const segmentCount = (item.segments || []).length;
 
     return `
-      <div class="task-card ${isPaused ? 'task-card-paused' : ''}" style="${isPaused ? 'border-color: rgba(255, 184, 0, 0.45);' : ''}">
-        <div class="task-top">
-          <div class="task-file-info">
-            <div class="task-file-icon" style="${isPaused ? 'background: rgba(255, 184, 0, 0.15); color: #ffb800;' : ''}">
-              ${isPaused ? '⏸' : '📦'}
-            </div>
-            <div>
-              <div class="task-filename">${item.filename}</div>
+      <article class="task-card task-card-compact ${isPaused ? 'task-card-paused' : ''}">
+        <div class="task-compact-head">
+          <div class="task-compact-file">
+            <span class="task-status-mark ${isPaused ? 'is-paused' : ''}" aria-hidden="true"></span>
+            <div class="task-compact-copy">
+              <div class="task-filename" title="${filename}">${filename}</div>
               <div class="task-sub-meta mono">
-                ${formatBytes(item.downloadedBytes)} of ${formatBytes(item.contentLength)} (${percent}%) · ${isPaused ? '<span style="color:#ffb800;font-weight:700;">PAUSED</span>' : `ETA: ${formatEta(item.etaSeconds)}`}
+                ${formatBytes(item.downloadedBytes)} / ${formatBytes(item.contentLength)} · ${percent}% · ${isPaused ? '<span class="task-paused-label">Paused</span>' : `ETA ${formatEta(item.etaSeconds)}`}
               </div>
             </div>
           </div>
 
-          <div class="task-actions">
-            ${isPaused ? 
-              `<button class="btn btn-sm btn-accent" style="background: linear-gradient(135deg, #00f5a0, #00d285); color: #041019; font-weight: 700; box-shadow: 0 0 15px rgba(0, 245, 160, 0.4);" onclick="resumeDownload('${item.id}')">▶ Resume</button>` :
-              `<button class="btn btn-sm btn-glass" onclick="pauseDownload('${item.id}')">⏸ Pause</button>`
+          <div class="task-compact-actions">
+            ${isPaused ?
+              `<button class="btn btn-xs btn-accent" onclick="resumeDownload('${item.id}')">▶ Resume</button>` :
+              `<button class="btn btn-xs btn-glass" onclick="pauseDownload('${item.id}')">⏸ Pause</button>`
             }
-            <button class="btn btn-sm btn-glass" onclick="cancelDownload('${item.id}')">✕ Cancel</button>
+            <button class="btn btn-xs btn-glass" onclick="cancelDownload('${item.id}')">✕ Cancel</button>
+            <div class="action-menu-wrap">
+              <button type="button" class="btn btn-xs btn-glass" onclick="toggleDownloadMenu(event, 'active-${item.id}')">More ▾</button>
+              <div id="active-${item.id}" class="download-action-menu" hidden>
+                <button type="button" onclick="openActiveDownloadFolder('${item.id}')">Open download folder</button>
+                <button type="button" onclick="copyDownloadUrl('${item.id}', 'active')">Copy download link</button>
+                <button type="button" class="danger-action" onclick="restartDownload('${item.id}')">Restart from beginning</button>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="progress-container">
-          <div class="progress-metrics-row">
-            <span style="color: ${isPaused ? '#ffb800' : '#00f2fe'}; font-weight: 700;">
-              ${isPaused ? '⏸ PAUSED' : item.status.toUpperCase()}
-            </span>
-            <span class="mono" style="color: ${isPaused ? '#ffb800' : '#00f5a0'}; font-weight: 700;">
-              ${isPaused ? 'PAUSED' : formatSpeed(item.currentSpeed)}
-            </span>
+        <div class="task-compact-progress">
+          <div class="task-progress-meta">
+            <span class="task-progress-status ${isPaused ? 'is-paused' : ''}">${isPaused ? 'Paused' : item.status}</span>
+            <span class="mono task-progress-speed">${isPaused ? '—' : formatSpeed(item.currentSpeed)}</span>
           </div>
-
           <div class="progress-bar-bg">
             <div class="progress-bar-fill" style="width: ${percent}%; ${isPaused ? 'background: #ffb800;' : ''}"></div>
           </div>
+        </div>
 
-          <div class="segment-map-title">DYNAMIC MULTI-INTERFACE CHUNK MAP</div>
-          <div class="segment-grid">
-            ${segmentsHtml || '<div style="color: #64748b; font-size: 0.75rem">Allocating segments across bonded interfaces...</div>'}
-          </div>
-
-          <div class="adapter-contribution-row">
-            ${contribsHtml}
+        <div class="task-details ${showDetails ? 'is-open' : ''}">
+          <button type="button" class="task-details-toggle" onclick="toggleDownloadDetails('${item.id}')" aria-expanded="${showDetails}" aria-controls="details-${item.id}">
+            <span>${showDetails ? 'Hide network details' : 'Network details'}</span>
+            <span class="task-details-count">${segmentCount} segments · ${connectionCount} adapters</span>
+          </button>
+          <div id="details-${item.id}" class="task-details-content" ${showDetails ? '' : 'hidden'}>
+            <div class="segment-map-title">DYNAMIC MULTI-INTERFACE CHUNK MAP</div>
+            <div class="segment-grid">
+              ${segmentsHtml || '<div style="color: #64748b; font-size: 0.75rem">Allocating segments across bonded interfaces...</div>'}
+            </div>
+            <div class="adapter-contribution-row">${contribsHtml}</div>
           </div>
         </div>
-      </div>
+      </article>
     `;
   }).join('');
 }
+
+window.toggleDownloadDetails = function(id) {
+  if (expandedDownloadDetails.has(id)) expandedDownloadDetails.delete(id);
+  else expandedDownloadDetails.add(id);
+  closeDownloadMenus();
+  renderActiveDownloads();
+};
 
 // 4. Download Controls
 window.pauseDownload = async function(id) {
@@ -448,8 +580,174 @@ window.cancelDownload = async function(id) {
   }
 };
 
+window.toggleDownloadMenu = function(event, menuId) {
+  event.stopPropagation();
+  const menu = document.getElementById(menuId);
+  if (!menu) return;
+  const shouldOpen = menu.hidden;
+
+  closeDownloadMenus();
+  if (!shouldOpen) return;
+
+  const anchor = event.currentTarget.getBoundingClientRect();
+  downloadMenuOrigins.set(menu, menu.parentElement);
+  document.body.appendChild(menu);
+  menu.classList.add('is-floating');
+  menu.hidden = false;
+  menu.style.visibility = 'hidden';
+
+  const menuRect = menu.getBoundingClientRect();
+  const edge = 12;
+  const gap = 6;
+  const width = Math.min(menuRect.width, window.innerWidth - edge * 2);
+  const height = Math.min(menuRect.height, window.innerHeight - edge * 2);
+  const left = Math.max(edge, Math.min(anchor.right - width, window.innerWidth - width - edge));
+  const roomBelow = window.innerHeight - anchor.bottom - edge;
+  const roomAbove = anchor.top - edge;
+  const top = roomBelow >= height + gap || roomBelow >= roomAbove
+    ? Math.min(anchor.bottom + gap, window.innerHeight - height - edge)
+    : Math.max(edge, anchor.top - height - gap);
+
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+  menu.style.maxHeight = `${height}px`;
+  menu.style.visibility = '';
+};
+
+function closeDownloadMenus() {
+  document.querySelectorAll('.download-action-menu').forEach(menu => {
+    const wasFloating = menu.classList.contains('is-floating');
+    menu.hidden = true;
+    menu.classList.remove('is-floating');
+    menu.style.left = '';
+    menu.style.top = '';
+    menu.style.maxHeight = '';
+    menu.style.visibility = '';
+
+    const origin = downloadMenuOrigins.get(menu);
+    if (origin?.isConnected) origin.appendChild(menu);
+    else if (wasFloating) menu.remove();
+    downloadMenuOrigins.delete(menu);
+  });
+}
+
+document.addEventListener('click', (event) => {
+  if (event.target.closest('.download-action-menu button')) {
+    closeDownloadMenus();
+    return;
+  }
+  if (!event.target.closest('.action-menu-wrap, .download-action-menu')) {
+    closeDownloadMenus();
+  }
+});
+
+function outputDirectoryFromPath(outputPath) {
+  if (!outputPath) return currentSettings?.downloadDir;
+  const separator = Math.max(outputPath.lastIndexOf('\\'), outputPath.lastIndexOf('/'));
+  return separator >= 0 ? outputPath.slice(0, separator) : currentSettings?.downloadDir;
+}
+
+async function postDownloadAction(url, body = {}) {
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
+  });
+  const data = await response.json();
+  if (!response.ok || data.error) throw new Error(data.error || `Server returned HTTP ${response.status}`);
+  return data;
+}
+
+function getSelectedDownloadInterfaces() {
+  return networkInterfaces.filter(iface => selectedInterfaces.has(iface.address));
+}
+
+function acceptNewDownload(task) {
+  activeDownloads.set(task.id, task);
+  renderActiveDownloads();
+  updateGlobalSpeed();
+}
+
+window.redownloadHistoryItem = async function(id) {
+  const item = downloadHistory.find(entry => entry.id === id);
+  if (!item?.url) return alert('The original download link is not available.');
+  try {
+    const task = await postDownloadAction('/api/downloads', {
+      url: item.url,
+      filename: item.filename,
+      outputDir: outputDirectoryFromPath(item.outputPath),
+      interfaces: getSelectedDownloadInterfaces(),
+      connectionsPerInterface: currentSettings?.connectionsPerAdapter || 4
+    });
+    acceptNewDownload(task);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  } catch (err) {
+    alert(`Could not restart download: ${err.message}`);
+  }
+};
+
+window.removeHistoryItem = async function(id) {
+  if (!confirm('Remove this item from download history? The downloaded file will stay on your computer.')) return;
+  try {
+    await postDownloadAction(`/api/download-history/${id}/remove`);
+    downloadHistory = downloadHistory.filter(item => item.id !== id);
+    renderHistory();
+  } catch (err) {
+    alert(`Could not remove history item: ${err.message}`);
+  }
+};
+
+window.deleteHistoryFile = async function(id) {
+  const item = downloadHistory.find(entry => entry.id === id);
+  if (!confirm(`Permanently delete '${item?.filename || 'this file'}' from your computer and remove it from history?`)) return;
+  try {
+    await postDownloadAction(`/api/download-history/${id}/delete-file`);
+    downloadHistory = downloadHistory.filter(entry => entry.id !== id);
+    renderHistory();
+  } catch (err) {
+    alert(`Could not delete downloaded file: ${err.message}`);
+  }
+};
+
+window.copyDownloadUrl = async function(id, source) {
+  const item = source === 'active' ? activeDownloads.get(id) : downloadHistory.find(entry => entry.id === id);
+  if (!item?.url) return alert('The download link is not available.');
+  try {
+    await navigator.clipboard.writeText(item.url);
+  } catch (err) {
+    alert(`Could not copy download link: ${err.message}`);
+  }
+};
+
+window.openActiveDownloadFolder = async function(id) {
+  const item = activeDownloads.get(id);
+  if (item) await window.openOutputFolder(outputDirectoryFromPath(item.outputPath));
+};
+
+window.restartDownload = async function(id) {
+  const item = activeDownloads.get(id);
+  if (!item) return;
+  if (!confirm(`Cancel '${item.filename}' and delete its partial file, then start it again from the beginning?`)) return;
+  try {
+    await postDownloadAction(`/api/downloads/${id}/cancel`);
+    activeDownloads.delete(id);
+    renderActiveDownloads();
+    const task = await postDownloadAction('/api/downloads', {
+      url: item.url,
+      filename: item.filename,
+      outputDir: outputDirectoryFromPath(item.outputPath),
+      interfaces: getSelectedDownloadInterfaces(),
+      connectionsPerInterface: currentSettings?.connectionsPerAdapter || 4
+    });
+    acceptNewDownload(task);
+  } catch (err) {
+    alert(`Could not restart download: ${err.message}`);
+  }
+};
+
 // 5. Render History
 function renderHistory() {
+  closeDownloadMenus();
   const tbody = document.getElementById('historyList');
   if (!tbody) return;
 
@@ -460,22 +758,33 @@ function renderHistory() {
 
   tbody.innerHTML = downloadHistory.map(item => {
     const dateStr = item.completedAt ? new Date(item.completedAt).toLocaleTimeString() : '--';
-    const isCompleted = item.status === 'completed';
+    const size = Number(item.downloadedBytes ?? item.contentLength ?? 0);
+    const isCompleted = item.status === 'completed' && size > 0;
+    const statusText = isCompleted ? 'COMPLETED' : (item.status === 'completed' ? 'ERROR' : item.status.toUpperCase());
+    const filename = escapeHtml(item.filename || 'download.bin');
+    const errorTitle = item.error ? ` title="${escapeHtml(item.error)}"` : '';
 
     return `
       <tr>
-        <td style="font-weight: 600; color: #f8fafc">${item.filename}</td>
-        <td class="mono">${formatBytes(item.contentLength)}</td>
+        <td style="font-weight: 600; color: #f8fafc">${filename}</td>
+        <td class="mono">${formatBytes(size)}</td>
         <td>
-          <span class="count-pill" style="color: ${isCompleted ? '#00f5a0' : '#ff3366'}">
-            ${item.status.toUpperCase()}
+          <span class="count-pill"${errorTitle} style="color: ${isCompleted ? '#00f5a0' : '#ff3366'}">
+            ${statusText}
           </span>
         </td>
         <td class="mono">${dateStr}</td>
         <td>
-          <button type="button" class="btn btn-sm btn-glass" onclick="openHistoryItemFolder('${item.id}')" title="Open folder and select this file in Windows Explorer">
-            Show in Folder
-          </button>
+          <div class="action-menu-wrap history-action-wrap">
+            <button type="button" class="btn btn-sm btn-glass" onclick="toggleDownloadMenu(event, 'history-${item.id}')">More ▾</button>
+            <div id="history-${item.id}" class="download-action-menu" hidden>
+              <button type="button" onclick="redownloadHistoryItem('${item.id}')">Download again</button>
+              <button type="button" onclick="openHistoryItemFolder('${item.id}')">Show in folder</button>
+              <button type="button" onclick="copyDownloadUrl('${item.id}', 'history')">Copy download link</button>
+              <button type="button" onclick="removeHistoryItem('${item.id}')">Remove from history</button>
+              <button type="button" class="danger-action" onclick="deleteHistoryFile('${item.id}')">Delete downloaded file</button>
+            </div>
+          </div>
         </td>
       </tr>
     `;
@@ -529,10 +838,14 @@ function populateModalInterfaces() {
 
   container.innerHTML = networkInterfaces.map(iface => {
     const isSelected = selectedInterfaces.has(iface.address);
+    const name = escapeHtml(iface.name || 'Network adapter');
+    const label = escapeHtml(iface.label || 'Network adapter');
+    const icon = escapeHtml(iface.icon || '📶');
+    const address = escapeHtml(iface.address || '');
     return `
       <label class="iface-checkbox-row">
-        <input type="checkbox" value="${iface.address}" ${isSelected ? 'checked' : ''} name="modalIface">
-        <span>${iface.icon} <strong>${iface.name}</strong> (${iface.address})</span>
+        <input type="checkbox" value="${address}" ${isSelected ? 'checked' : ''} name="modalIface">
+        <span>${icon} <strong>${name}</strong> (${address}) · ${label}</span>
       </label>
     `;
   }).join('');
@@ -714,8 +1027,8 @@ function renderSiteLogins() {
 
   tbody.innerHTML = logins.map((item, idx) => `
     <tr>
-      <td class="mono">${item.pattern}</td>
-      <td>${item.username || '--'}</td>
+      <td class="mono">${escapeHtml(item.pattern || '')}</td>
+      <td>${escapeHtml(item.username || '--')}</td>
       <td class="mono">••••••••</td>
       <td>
         <button type="button" class="btn btn-xs btn-glass" onclick="deleteSiteLogin(${idx})">Delete</button>
@@ -772,17 +1085,50 @@ window.browseFileForInput = async function(inputElement) {
 // =========================================================
 // Network Speed Tester (Individual or All Adapters)
 // =========================================================
+function applySpeedTestResult(address, result) {
+  const safeId = address.replace(/[^a-zA-Z0-9]/g, '_');
+  const badge = document.getElementById(`speedtest-badge-${safeId}`);
+  if (!badge) return;
+  badge.style.display = 'inline-block';
+  badge.className = `speedtest-result-badge${result.error ? ' speedtest-result-error' : ''}`;
+  badge.textContent = result.text;
+}
+
+function rememberSpeedTestResult(address, text, error = false) {
+  const result = { text, error };
+  speedTestResults.set(address, result);
+  applySpeedTestResult(address, result);
+}
+
+function showSpeedTestSummary(titleText, subText, speedText, completed = true) {
+  const banner = document.getElementById('speedTestBanner');
+  if (banner) {
+    banner.style.display = 'block';
+    banner.classList.toggle('complete', completed);
+  }
+  const title = document.getElementById('speedTestBannerTitle');
+  const sub = document.getElementById('speedTestBannerSub');
+  const speed = document.getElementById('speedTestBannerMbps');
+  const orb = banner?.querySelector('.speedtest-spinner-orb');
+  if (title) title.textContent = titleText;
+  if (sub) sub.textContent = subText;
+  if (speed) speed.textContent = speedText;
+  if (orb) orb.textContent = completed ? '✓' : '⚡';
+}
+
 window.testSingleAdapterSpeed = async function(address) {
   const safeId = address.replace(/[^a-zA-Z0-9]/g, '_');
   const card = document.getElementById(`adapter-${safeId}`);
   const badge = document.getElementById(`speedtest-badge-${safeId}`);
 
+  speedTestResults.delete(address);
   if (card) card.classList.add('testing');
   if (badge) {
     badge.style.display = 'inline-block';
     badge.className = 'speedtest-result-badge testing';
     badge.textContent = 'Testing (5s)...';
   }
+  showSpeedTestSummary(`Testing ${networkInterfaces.find(i => i.address === address)?.name || address}...`, 'Measuring latency and download throughput for 5 seconds', 'Testing...', false);
 
   // Energize visualizer stream during active benchmark
   if (window.energyFlowVisualizer) {
@@ -798,22 +1144,21 @@ window.testSingleAdapterSpeed = async function(address) {
       body: JSON.stringify({ address, duration: 5 })
     });
     const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Server returned HTTP ${res.status}`);
     const result = data.result;
 
-    if (badge) {
-      badge.className = 'speedtest-result-badge';
-      if (result && result.success) {
-        badge.textContent = `Ping: ${result.ping}ms | ${result.mbps} Mbps (5s avg)`;
-      } else {
-        badge.textContent = `Error: ${(result && result.error) || 'Failed'}`;
-        badge.style.color = '#ff3366';
-      }
+    if (result && result.success) {
+      const resultText = `Ping: ${result.ping}ms | ${result.mbps} Mbps (5s avg)`;
+      rememberSpeedTestResult(address, resultText);
+      showSpeedTestSummary(`${result.speedFormatted} on ${networkInterfaces.find(i => i.address === address)?.name || address}`, `Speed test complete · ${result.bytes.toLocaleString()} bytes in ${result.duration}s · Ping ${result.ping}ms`, `${result.mbps} Mbps`);
+    } else {
+      const message = (result && result.error) || 'Speed test failed';
+      rememberSpeedTestResult(address, `Error: ${message}`, true);
+      showSpeedTestSummary('Speed test failed', message, 'Failed');
     }
   } catch (err) {
-    if (badge) {
-      badge.className = 'speedtest-result-badge';
-      badge.textContent = `Error: ${err.message}`;
-    }
+    rememberSpeedTestResult(address, `Error: ${err.message}`, true);
+    showSpeedTestSummary('Speed test failed', err.message, 'Failed');
   } finally {
     if (card) card.classList.remove('testing');
     updateGlobalSpeed();
@@ -821,15 +1166,7 @@ window.testSingleAdapterSpeed = async function(address) {
 };
 
 window.testAllAdaptersSpeed = async function() {
-  const banner = document.getElementById('speedTestBanner');
-  const title = document.getElementById('speedTestBannerTitle');
-  const sub = document.getElementById('speedTestBannerSub');
-  const mbpsEl = document.getElementById('speedTestBannerMbps');
-
-  if (banner) banner.style.display = 'block';
-  if (title) title.textContent = 'Benchmarking All Active Adapters (5s)...';
-  if (sub) sub.textContent = 'Measuring CDN throughput and latency across bonded interfaces';
-  if (mbpsEl) mbpsEl.textContent = 'Testing...';
+  showSpeedTestSummary('Benchmarking all active adapters (5s)...', 'Measuring download throughput and latency across bonded interfaces', 'Testing...', false);
 
   const onlineIfaces = networkInterfaces.filter(i => i.online);
   const simSpeeds = {};
@@ -857,27 +1194,21 @@ window.testAllAdaptersSpeed = async function() {
       body: JSON.stringify({ address: 'all', duration: 5 })
     });
     const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Server returned HTTP ${res.status}`);
 
-    if (title) title.textContent = `✓ Aggregate Bonded Throughput: ${data.totalSpeedFormatted}`;
-    if (sub) sub.textContent = `Concurrent channel bonding across ${data.activeCount} active network adapters`;
-    if (mbpsEl) mbpsEl.textContent = `${data.totalMbps} Mbps`;
+    showSpeedTestSummary(`Aggregate bonded throughput: ${data.totalSpeedFormatted}`, `Concurrent test across ${data.activeCount} active network adapters`, `${data.totalMbps} Mbps`);
 
     (data.adapters || []).forEach(adapterResult => {
       if (adapterResult.localAddress) {
-        const safeId = adapterResult.localAddress.replace(/[^a-zA-Z0-9]/g, '_');
-        const badge = document.getElementById(`speedtest-badge-${safeId}`);
-        if (badge) {
-          badge.className = 'speedtest-result-badge';
-          if (adapterResult.success) {
-            badge.textContent = `Ping: ${adapterResult.ping}ms | ${adapterResult.mbps} Mbps`;
-          } else {
-            badge.textContent = `Err: ${adapterResult.error || 'Failed'}`;
-          }
+        if (adapterResult.success) {
+          rememberSpeedTestResult(adapterResult.localAddress, `Ping: ${adapterResult.ping}ms | ${adapterResult.mbps} Mbps`);
+        } else {
+          rememberSpeedTestResult(adapterResult.localAddress, `Error: ${adapterResult.error || 'Failed'}`, true);
         }
       }
     });
   } catch (err) {
-    if (title) title.textContent = `Speed Test Failed: ${err.message}`;
+    showSpeedTestSummary('Speed test failed', err.message, 'Failed');
   } finally {
     onlineIfaces.forEach(i => {
       const safeId = i.address.replace(/[^a-zA-Z0-9]/g, '_');
@@ -895,6 +1226,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initSSE();
 
   document.getElementById('btnScanAdapters')?.addEventListener('click', loadInterfaces);
+  document.getElementById('btnUseNewAdapter')?.addEventListener('click', () => resolveNewAdapterPrompt(true));
+  document.getElementById('btnKeepNewAdapterPaused')?.addEventListener('click', () => resolveNewAdapterPrompt(false));
   document.getElementById('btnTestAllSpeeds')?.addEventListener('click', testAllAdaptersSpeed);
   document.getElementById('btnOpenNewModal')?.addEventListener('click', openNewModal);
   document.getElementById('btnCloseModal')?.addEventListener('click', closeNewModal);
@@ -1180,6 +1513,9 @@ document.addEventListener('DOMContentLoaded', () => {
       });
 
       const task = await res.json();
+      if (!res.ok || task.error) {
+        throw new Error(task.error || `Server returned HTTP ${res.status}`);
+      }
       activeDownloads.set(task.id, task);
       renderActiveDownloads();
       closeNewModal();
@@ -1216,28 +1552,120 @@ class QuantumEnergyFlowCanvas {
     this.totalSpeed = 0;
     this.animating = false;
     this.lastFrameTime = performance.now();
+    this.frameAccumulator = 0;
     this.minimized = false;
     this.clickableRegions = [];
     this.hoveredAddress = null;
+    this.adapterPositions = this.loadAdapterPositions();
+    this.draggingAddress = null;
+    this.dragStart = null;
+    this.dragMoved = false;
+    this.suppressNextClick = false;
 
     this.canvas.addEventListener('click', (e) => this.handleClick(e));
     this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+    this.canvas.addEventListener('pointermove', (e) => this.handleMouseMove(e));
+    this.canvas.addEventListener('pointerdown', (e) => this.handlePointerDown(e));
+    this.canvas.addEventListener('pointerup', (e) => this.handlePointerUp(e));
+    this.canvas.addEventListener('pointercancel', (e) => this.handlePointerUp(e));
+    this.canvas.addEventListener('lostpointercapture', (e) => this.handlePointerUp(e));
     this.canvas.addEventListener('mouseleave', () => {
+      if (this.draggingAddress) return;
       this.hoveredAddress = null;
       if (this.canvas) this.canvas.style.cursor = 'default';
     });
 
     this.resize();
     window.addEventListener('resize', () => this.resize());
+    if (window.ResizeObserver) {
+      this.resizeObserver = new ResizeObserver(() => this.resize());
+      this.resizeObserver.observe(this.canvas.parentElement);
+    }
+  }
+
+  loadAdapterPositions() {
+    try {
+      const saved = JSON.parse(localStorage.getItem('adapterCanvasPositions') || '{}');
+      return new Map(Object.entries(saved).filter(([, position]) =>
+        position && Number.isFinite(position.x) && Number.isFinite(position.y)
+      ));
+    } catch {
+      return new Map();
+    }
+  }
+
+  saveAdapterPositions() {
+    try {
+      localStorage.setItem('adapterCanvasPositions', JSON.stringify(Object.fromEntries(this.adapterPositions)));
+    } catch {
+      // Keep dragging available when browser storage is disabled or full.
+    }
+  }
+
+  getCanvasPoint(e) {
+    const rect = this.canvas.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) * (this.canvas.width / rect.width),
+      y: (e.clientY - rect.top) * (this.canvas.height / rect.height)
+    };
+  }
+
+  getLayoutBounds(w, h) {
+    const sideMargin = Math.min(110, Math.max(48, w * 0.08));
+    const destX = Math.max(42, w - sideMargin);
+    const minX = Math.min(Math.max(36, w * 0.18), Math.max(24, destX - 82));
+    const maxX = Math.max(minX, destX - 58);
+    const top = Math.min(42, Math.max(20, h * 0.16));
+    const bottom = Math.max(top, h - top);
+    return { destX, minX, maxX, top, bottom };
+  }
+
+  getAdapterPosition(address, index, count, bounds) {
+    const stored = this.adapterPositions.get(address);
+    const xRatio = stored ? Math.max(0, Math.min(1, stored.x)) : null;
+    const yRatio = stored ? Math.max(0, Math.min(1, stored.y)) : null;
+    const defaultX = Math.max(bounds.minX, Math.min(bounds.maxX, this.width * 0.28));
+    const defaultY = count <= 1 ? 0.5 : index / (count - 1);
+    return {
+      x: xRatio === null ? defaultX : bounds.minX + xRatio * (bounds.maxX - bounds.minX),
+      y: bounds.top + (yRatio === null ? defaultY : yRatio) * (bounds.bottom - bounds.top)
+    };
+  }
+
+  handlePointerDown(e) {
+    if (e.button !== undefined && e.button !== 0) return;
+    const point = this.getCanvasPoint(e);
+    const hit = this.clickableRegions.find(r =>
+      point.x >= r.x1 && point.x <= r.x2 && point.y >= r.y1 && point.y <= r.y2
+    );
+    if (!hit) return;
+    this.draggingAddress = hit.address;
+    this.dragStart = point;
+    this.dragMoved = false;
+    this.suppressNextClick = false;
+    this.canvas.style.cursor = 'grabbing';
+    this.canvas.setPointerCapture?.(e.pointerId);
+  }
+
+  handlePointerUp(e) {
+    if (!this.draggingAddress) return;
+    if (this.dragMoved) this.suppressNextClick = true;
+    this.draggingAddress = null;
+    this.dragStart = null;
+    this.dragMoved = false;
+    this.canvas.style.cursor = this.hoveredAddress ? 'grab' : 'default';
+    if (this.canvas.hasPointerCapture?.(e.pointerId)) {
+      this.canvas.releasePointerCapture(e.pointerId);
+    }
   }
 
   handleClick(e) {
     if (!this.canvas) return;
-    const rect = this.canvas.getBoundingClientRect();
-    const scaleX = this.canvas.width / rect.width;
-    const scaleY = this.canvas.height / rect.height;
-    const mx = (e.clientX - rect.left) * scaleX;
-    const my = (e.clientY - rect.top) * scaleY;
+    if (this.suppressNextClick) {
+      this.suppressNextClick = false;
+      return;
+    }
+    const { x: mx, y: my } = this.getCanvasPoint(e);
 
     const hit = this.clickableRegions.find(r => mx >= r.x1 && mx <= r.x2 && my >= r.y1 && my <= r.y2);
     if (hit && window.toggleAdapter) {
@@ -1247,15 +1675,28 @@ class QuantumEnergyFlowCanvas {
 
   handleMouseMove(e) {
     if (!this.canvas) return;
-    const rect = this.canvas.getBoundingClientRect();
-    const scaleX = this.canvas.width / rect.width;
-    const scaleY = this.canvas.height / rect.height;
-    const mx = (e.clientX - rect.left) * scaleX;
-    const my = (e.clientY - rect.top) * scaleY;
+    const { x: mx, y: my } = this.getCanvasPoint(e);
+
+    if (this.draggingAddress && this.dragStart) {
+      if (!this.dragMoved && Math.hypot(mx - this.dragStart.x, my - this.dragStart.y) > 3) {
+        this.dragMoved = true;
+      }
+      if (this.dragMoved) {
+        const bounds = this.getLayoutBounds(this.width, this.height);
+        const x = Math.max(bounds.minX, Math.min(bounds.maxX, mx));
+        const y = Math.max(bounds.top, Math.min(bounds.bottom, my));
+        this.adapterPositions.set(this.draggingAddress, {
+          x: bounds.maxX === bounds.minX ? 0 : (x - bounds.minX) / (bounds.maxX - bounds.minX),
+          y: bounds.bottom === bounds.top ? 0.5 : (y - bounds.top) / (bounds.bottom - bounds.top)
+        });
+        this.saveAdapterPositions();
+      }
+      return;
+    }
 
     const hit = this.clickableRegions.find(r => mx >= r.x1 && mx <= r.x2 && my >= r.y1 && my <= r.y2);
     this.hoveredAddress = hit ? hit.address : null;
-    this.canvas.style.cursor = hit ? 'pointer' : 'default';
+    this.canvas.style.cursor = hit ? 'grab' : 'default';
   }
 
   resize() {
@@ -1290,7 +1731,13 @@ class QuantumEnergyFlowCanvas {
       const dt = Math.min(0.05, (now - this.lastFrameTime) / 1000);
       this.lastFrameTime = now;
       if (!this.minimized) {
-        this.render(dt);
+        this.frameAccumulator += dt;
+        if (this.frameAccumulator >= 1 / 30) {
+          this.render(this.frameAccumulator);
+          this.frameAccumulator = 0;
+        }
+      } else {
+        this.frameAccumulator = 0;
       }
       requestAnimationFrame(loop);
     };
@@ -1308,16 +1755,10 @@ class QuantumEnergyFlowCanvas {
 
     const ifacesToDraw = networkInterfaces.length > 0 ? networkInterfaces : [];
     const ifaceCount = Math.max(1, ifacesToDraw.length);
-
-    // Padding preventing vertical clipping
-    const topPadding = 42;
-    const bottomPadding = 42;
-    const usableHeight = Math.max(80, h - topPadding - bottomPadding);
-    const step = ifaceCount > 1 ? usableHeight / (ifaceCount - 1) : 0;
-
-    const srcX = 230; // Clean space on left for adapter labels and pause buttons
-    const destX = w - 110;
+    const bounds = this.getLayoutBounds(w, h);
+    const destX = bounds.destX;
     const destY = h / 2;
+    const wireScale = Math.max(0.65, Math.min(1.25, Math.min(w / 800, h / 250)));
 
     const activeTotalSpeed = this.isSurgeDemo ? 45 * 1024 * 1024 : this.totalSpeed;
 
@@ -1335,49 +1776,54 @@ class QuantumEnergyFlowCanvas {
 
     // Sources mapping
     const sources = ifacesToDraw.map((iface, index) => {
-      const srcY = ifaceCount === 1 ? h / 2 : topPadding + (step * index);
+      const position = this.getAdapterPosition(iface.address, index, ifaceCount, bounds);
       const isPaused = selectedInterfaces.size > 0 ? !selectedInterfaces.has(iface.address) : !iface.online;
       const speed = isPaused ? 0 : (this.isSurgeDemo ? 22 * 1024 * 1024 : (this.adapterSpeeds[iface.address] || 0));
       const color = isPaused ? '#64748b' : INTERFACE_COLORS[index % INTERFACE_COLORS.length];
-      return { iface, index, x: 220, y: srcY, color, speed, isPaused };
+      return { iface, index, x: position.x, y: position.y, color, speed, isPaused };
     });
 
     // 1. Draw conduit lines
     sources.forEach(src => {
       const hasTraffic = !src.isPaused && (src.speed > 0 || this.isSurgeDemo);
-      const cp1X = src.x + (destX - src.x) * 0.5;
+      const wireStartX = src.x + 14;
+      const wireEndX = destX - 24;
+      const cp1X = wireStartX + (wireEndX - wireStartX) * 0.5;
       const cp1Y = src.y;
-      const cp2X = destX - (destX - src.x) * 0.5;
+      const cp2X = wireEndX - (wireEndX - wireStartX) * 0.5;
       const cp2Y = destY;
 
       ctx.beginPath();
-      ctx.moveTo(src.x, src.y);
-      ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, destX, destY);
+      ctx.moveTo(wireStartX, src.y);
+      ctx.bezierCurveTo(cp1X, cp1Y, cp2X, cp2Y, wireEndX, destY);
 
       if (src.isPaused) {
         ctx.setLineDash([5, 5]);
-        ctx.lineWidth = 1.5;
+        ctx.lineWidth = 1.25 * wireScale;
         ctx.strokeStyle = 'rgba(255, 184, 0, 0.25)';
       } else {
         ctx.setLineDash([]);
-        ctx.lineWidth = hasTraffic ? 2.5 : 1.5;
+        ctx.lineWidth = (hasTraffic ? 1.75 + Math.min(1.75, src.speed / (12 * 1024 * 1024)) : 1.25) * wireScale;
         ctx.strokeStyle = hasTraffic ? src.color : 'rgba(255, 255, 255, 0.12)';
       }
       ctx.stroke();
       ctx.setLineDash([]);
 
-      // Spawn data pulses only for unpaused active adapters
-      if (!src.isPaused) {
-        const targetPulseCount = hasTraffic ? 4 : 1;
-        const pulsesForSrc = this.pulses.filter(p => p.srcIdx === src.index);
+      // Show moving data only while an adapter is carrying a download. Higher
+      // throughput fills the wire with more, slightly larger and faster pulses.
+      if (hasTraffic) {
+        const targetPulseCount = Math.min(14, 7 + Math.floor(src.speed / (4 * 1024 * 1024)));
+        const pulsesForSrc = this.pulses.filter(p => p.srcIdx === src.index).length;
+        const pulseDeficit = targetPulseCount - pulsesForSrc;
+        const spawnChance = Math.min(0.9, 0.3 * pulseDeficit);
 
-        if (pulsesForSrc.length < targetPulseCount && Math.random() < 0.06) {
+        if (pulseDeficit > 0 && Math.random() < spawnChance) {
           this.pulses.push({
             srcIdx: src.index,
             t: 0,
-            speedRate: hasTraffic ? (0.35 + Math.min(0.45, src.speed / (15 * 1024 * 1024))) : 0.2,
+            speedRate: 0.5 + Math.min(0.8, src.speed / (30 * 1024 * 1024)),
             color: src.color,
-            size: hasTraffic ? 3.5 : 2.5
+            size: 3.5 + Math.min(1.75, src.speed / (8 * 1024 * 1024))
           });
         }
       }
@@ -1399,14 +1845,16 @@ class QuantumEnergyFlowCanvas {
         continue;
       }
 
-      const cp1X = src.x + (destX - src.x) * 0.5;
+      const wireStartX = src.x + 14;
+      const wireEndX = destX - 24;
+      const cp1X = wireStartX + (wireEndX - wireStartX) * 0.5;
       const cp1Y = src.y;
-      const cp2X = destX - (destX - src.x) * 0.5;
+      const cp2X = wireEndX - (wireEndX - wireStartX) * 0.5;
       const cp2Y = destY;
 
       const t = p.t;
       const invT = 1 - t;
-      const bx = invT * invT * invT * src.x + 3 * invT * invT * t * cp1X + 3 * invT * t * t * cp2X + t * t * t * destX;
+      const bx = invT * invT * invT * wireStartX + 3 * invT * invT * t * cp1X + 3 * invT * t * t * cp2X + t * t * t * wireEndX;
       const by = invT * invT * invT * src.y + 3 * invT * invT * t * cp1Y + 3 * invT * t * t * cp2Y + t * t * t * destY;
 
       ctx.beginPath();
@@ -1422,29 +1870,22 @@ class QuantumEnergyFlowCanvas {
 
     // 3. Draw Left Adapter Nodes (Clean, minimalistic, NO text overlap)
     sources.forEach(src => {
-      const isHovered = this.hoveredAddress === src.iface.address;
       const hasTraffic = !src.isPaused && (src.speed > 0 || this.isSurgeDemo);
 
       // Register clickable region for this adapter row
+      const labelWidth = Math.min(154, Math.max(86, w * 0.3));
+      const hasLeftLabel = src.x - labelWidth - 30 >= 8;
+      const labelX = Math.max(8, Math.min(w - labelWidth - 8, hasLeftLabel ? src.x - labelWidth - 30 : src.x + 24));
+      const labelY = src.y;
+      const hitLeft = Math.min(labelX, src.x - 19);
+      const hitRight = Math.max(labelX + labelWidth, src.x + 19);
       this.clickableRegions.push({
         address: src.iface.address,
-        x1: 12,
-        x2: src.x + 22,
+        x1: Math.max(4, hitLeft - 4),
+        x2: Math.min(w - 4, hitRight + 4),
         y1: src.y - 22,
         y2: src.y + 22
       });
-
-      // Hover background highlight
-      if (isHovered) {
-        ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
-        ctx.beginPath();
-        if (ctx.roundRect) {
-          ctx.roundRect(12, src.y - 18, src.x - 2, 36, 6);
-        } else {
-          ctx.rect(12, src.y - 18, src.x - 2, 36);
-        }
-        ctx.fill();
-      }
 
       // Draw Adapter Label
       const rawName = `${src.iface.icon || '📶'} ${src.iface.name || 'Adapter'}`;
@@ -1452,18 +1893,18 @@ class QuantumEnergyFlowCanvas {
 
       ctx.font = '600 12px "Plus Jakarta Sans", sans-serif';
       ctx.fillStyle = src.isPaused ? '#ffb800' : '#f8fafc';
-      ctx.textAlign = 'left';
+      ctx.textAlign = hasLeftLabel ? 'right' : 'left';
       ctx.textBaseline = 'middle';
-      ctx.fillText(displayName, 24, src.y - 8);
+      ctx.fillText(displayName, hasLeftLabel ? src.x - 24 : labelX, labelY - 8, labelWidth);
 
       // Speed / Status line - short, clean, zero overlap
       ctx.font = '700 11px "JetBrains Mono", monospace';
       if (src.isPaused) {
         ctx.fillStyle = '#ffb800';
-        ctx.fillText('Paused', 24, src.y + 9);
+        ctx.fillText('Paused', hasLeftLabel ? src.x - 24 : labelX, labelY + 9, labelWidth);
       } else {
         ctx.fillStyle = hasTraffic ? '#00f5a0' : '#64748b';
-        ctx.fillText(formatSpeed(src.speed), 24, src.y + 9);
+        ctx.fillText(formatSpeed(src.speed), hasLeftLabel ? src.x - 24 : labelX, labelY + 9, labelWidth);
       }
 
       // Node circle at x = src.x

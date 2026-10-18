@@ -261,6 +261,10 @@ body {
   box-shadow: var(--shadow-card);
 }
 
+.active-downloads-card {
+  padding: 18px 22px;
+}
+
 .section-header {
   display: flex;
   justify-content: space-between;
@@ -481,6 +485,10 @@ body {
   gap: 16px;
 }
 
+.active-downloads-card .downloads-container {
+  gap: 8px;
+}
+
 .empty-downloads {
   text-align: center;
   padding: 48px 20px;
@@ -522,6 +530,173 @@ body {
   box-shadow: 0 4px 20px rgba(255, 184, 0, 0.08);
 }
 
+.task-card-compact {
+  gap: 8px;
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+
+.task-compact-head,
+.task-compact-file,
+.task-compact-actions,
+.task-progress-meta,
+.task-details-toggle {
+  display: flex;
+  align-items: center;
+}
+
+.task-compact-head {
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.task-compact-file {
+  flex: 1;
+  gap: 10px;
+  min-width: 0;
+}
+
+.task-status-mark {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 8px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 8px rgba(0, 242, 254, 0.5);
+}
+
+.task-status-mark.is-paused {
+  background: #ffb800;
+  box-shadow: 0 0 8px rgba(255, 184, 0, 0.35);
+}
+
+.task-compact-copy {
+  flex: 1;
+  min-width: 0;
+}
+
+.task-card-compact .task-filename {
+  overflow: hidden;
+  font-size: 0.88rem;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-card-compact .task-sub-meta {
+  margin-top: 2px;
+  font-size: 0.7rem;
+}
+
+.task-paused-label,
+.task-progress-status.is-paused {
+  color: #ffb800;
+  font-weight: 700;
+}
+
+.task-compact-actions {
+  flex: 0 0 auto;
+  gap: 5px;
+}
+
+.task-compact-actions .btn-xs {
+  padding: 5px 8px;
+  font-size: 0.68rem;
+}
+
+.task-compact-progress {
+  display: grid;
+  gap: 4px;
+}
+
+.task-progress-meta {
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--text-faint);
+  font-size: 0.66rem;
+  line-height: 1;
+  text-transform: uppercase;
+}
+
+.task-progress-speed {
+  color: var(--accent-emerald);
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+
+.task-card-compact .progress-bar-bg {
+  height: 4px;
+}
+
+.task-details {
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding-top: 5px;
+}
+
+.task-details-toggle {
+  justify-content: space-between;
+  width: 100%;
+  gap: 10px;
+  padding: 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-faint);
+  text-align: left;
+  font: inherit;
+  font-size: 0.66rem;
+  cursor: pointer;
+}
+
+.task-details-toggle:hover {
+  color: var(--text-main);
+}
+
+.task-details-count {
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+}
+
+.task-details-content {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 7px;
+}
+
+.task-details-content[hidden] {
+  display: none;
+}
+
+.task-details-content .segment-map-title {
+  margin-top: 0;
+}
+
+.task-details-content .adapter-contribution-row {
+  margin-top: 0;
+}
+
+@media (max-width: 720px) {
+  .active-downloads-card {
+    padding: 14px;
+  }
+
+  .task-compact-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .task-compact-file,
+  .task-compact-copy {
+    width: 100%;
+  }
+
+  .task-compact-actions {
+    align-self: flex-end;
+  }
+}
+
 .task-top {
   display: flex;
   justify-content: space-between;
@@ -559,7 +734,67 @@ body {
 
 .task-actions {
   display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
   gap: 8px;
+}
+
+.action-menu-wrap {
+  position: relative;
+  display: inline-flex;
+}
+
+.download-action-menu {
+  position: absolute;
+  z-index: 20;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 190px;
+  padding: 6px;
+  border: 1px solid rgba(148, 163, 184, 0.24);
+  border-radius: 10px;
+  background: #111a2c;
+  box-shadow: 0 14px 34px rgba(0, 0, 0, 0.48);
+}
+
+.download-action-menu[hidden] {
+  display: none;
+}
+
+.download-action-menu.is-floating {
+  position: fixed;
+  z-index: 10000;
+  right: auto;
+  bottom: auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.download-action-menu button {
+  display: block;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-main);
+  text-align: left;
+  font: inherit;
+  font-size: 0.78rem;
+  cursor: pointer;
+}
+
+.download-action-menu button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.download-action-menu button.danger-action {
+  color: #ff7185;
+}
+
+.history-action-wrap .download-action-menu {
+  top: auto;
+  bottom: calc(100% + 6px);
 }
 
 /* Progress & Segment Visualizer */
@@ -969,6 +1204,8 @@ input:focus, select:focus {
   width: 100%;
   height: 100%;
   display: block;
+  touch-action: none;
+  user-select: none;
 }
 
 .visualizer-footer-hud {
@@ -1205,6 +1442,12 @@ textarea:focus {
   animation: bannerSlideDown 0.3s ease-out;
 }
 
+.speedtest-banner.complete .speedtest-spinner-orb {
+  animation: none;
+  background: linear-gradient(135deg, #00f5a0, #00b8d9);
+  box-shadow: 0 0 16px rgba(0, 245, 160, 0.45);
+}
+
 @keyframes bannerSlideDown {
   from { opacity: 0; transform: translateY(-10px); }
   to { opacity: 1; transform: translateY(0); }
@@ -1309,6 +1552,12 @@ textarea:focus {
   animation: pulseTesting 1s infinite alternate;
 }
 
+.speedtest-result-badge.speedtest-result-error {
+  color: #ff7185;
+  background: rgba(255, 51, 102, 0.1);
+  border-color: rgba(255, 51, 102, 0.35);
+}
+
 @keyframes pulseTesting {
   0% { opacity: 0.7; }
   100% { opacity: 1; filter: drop-shadow(0 0 6px var(--accent-cyan)); }
@@ -1376,6 +1625,52 @@ textarea:focus {
 .logins-table {
   width: 100%;
   margin-top: 8px;
+}
+
+.new-adapter-prompt {
+  position: fixed;
+  z-index: 1200;
+  top: 18px;
+  right: 18px;
+  width: min(380px, calc(100vw - 36px));
+  padding: 16px;
+  border: 1px solid rgba(0, 242, 254, 0.45);
+  border-radius: 14px;
+  background: #101a2c;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.48), 0 0 22px rgba(0, 242, 254, 0.12);
+}
+
+.new-adapter-prompt[hidden] {
+  display: none;
+}
+
+.new-adapter-prompt-heading {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: var(--text-main);
+  font-size: 0.9rem;
+}
+
+.new-adapter-prompt-heading span {
+  font-size: 1.1rem;
+}
+
+.new-adapter-prompt p {
+  margin: 8px 0 14px;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+}
+
+.new-adapter-prompt-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.new-adapter-prompt-actions .btn-xs {
+  padding: 7px 10px;
 }
 
 .checkboxes-col {

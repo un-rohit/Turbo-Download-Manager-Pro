@@ -9,7 +9,11 @@
     "start": "node server.js",
     "app": "node bin/app.js",
     "electron": "electron .",
-    "dist": "electron-packager . Turbo-Download-Manager --platform=win32 --arch=x64 --out=dist --overwrite"
+    "dist": "npx @electron/packager . Turbo-Download-Manager --platform=win32 --arch=x64 --out=dist --overwrite"
+  },
+  "devDependencies": {
+    "@electron/packager": "^20.3.0",
+    "electron": "^44.8.0"
   },
   "keywords": [
     "download-manager",

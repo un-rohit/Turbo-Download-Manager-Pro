@@ -87,7 +87,7 @@
           </div>
         </div>
         <p class="section-hint">
-          Real-time visualization of electric data streams flowing from your active physical adapters (Wi-Fi, USB Ethernet, LAN, Bluetooth) directly into your PC's storage bus.
+          Real-time visualization of electric data streams flowing from your active physical adapters (Wi-Fi, USB Ethernet, LAN, Bluetooth) directly into your PC's storage bus. Drag an adapter to reposition it; its wire follows and resizes with the canvas.
         </p>
 
         <div class="canvas-container">
@@ -689,6 +689,18 @@
       </div>
     </div>
   </div>
+
+  <aside id="newAdapterPrompt" class="new-adapter-prompt" hidden role="dialog" aria-labelledby="newAdapterPromptTitle" aria-describedby="newAdapterPromptMessage">
+    <div class="new-adapter-prompt-heading">
+      <span aria-hidden="true">🌐</span>
+      <strong id="newAdapterPromptTitle">New network adapter</strong>
+    </div>
+    <p id="newAdapterPromptMessage"></p>
+    <div class="new-adapter-prompt-actions">
+      <button type="button" id="btnKeepNewAdapterPaused" class="btn btn-xs btn-glass">Keep paused</button>
+      <button type="button" id="btnUseNewAdapter" class="btn btn-xs btn-accent">Use adapter</button>
+    </div>
+  </aside>
 
   <script src="app.js"></script>
 </body>

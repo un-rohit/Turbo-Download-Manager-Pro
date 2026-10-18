@@ -98,7 +98,7 @@ if (!gotTheLock) {
         {
           label: 'Open Downloads Folder',
           click: () => {
-            shell.openPath(path.join(__dirname, 'downloads'));
+            shell.openPath(app.getPath('downloads'));
           }
         },
         { type: 'separator' },
