@@ -41,13 +41,18 @@ function requestWithRedirects(urlStr, options = {}, redirectCount = 0, usedDefau
     }
 
     const client = parsed.protocol === 'https:' ? https : http;
-    const req = client.request({
+    const reqOptions = {
       ...options,
       timeout: options.timeout || 30000,
       hostname: parsed.hostname,
       port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
       path: `${parsed.pathname}${parsed.search}`
-    }, (res) => {
+    };
+    if (options.localAddress && !reqOptions.family) {
+      reqOptions.family = options.localAddress.includes(':') ? 6 : 4;
+    }
+
+    const req = client.request(reqOptions, (res) => {
       res.tdmLocalAddress = options.localAddress || null;
       res.tdmUsedDefaultRoute = usedDefaultRoute;
       const location = res.headers.location;
@@ -68,7 +73,8 @@ function requestWithRedirects(urlStr, options = {}, redirectCount = 0, usedDefau
       req.destroy(new Error(`Request timed out after ${Math.round((options.timeout || 30000) / 1000)} seconds`));
     });
     req.on('error', (err) => {
-      if (err.code === 'EADDRNOTAVAIL' && options.localAddress && !usedDefaultRoute) {
+      const isRouteError = err.code === 'EADDRNOTAVAIL' || err.code === 'EINVAL' || err.code === 'ENETUNREACH' || err.code === 'EHOSTUNREACH';
+      if (isRouteError && options.localAddress && !usedDefaultRoute) {
         const { localAddress, family, ...defaultRouteOptions } = options;
         requestWithRedirects(urlStr, defaultRouteOptions, redirectCount, true).then(resolve, reject);
         return;
@@ -459,13 +465,15 @@ export class MultiInterfaceDownload {
       }
 
       // Only mark completed if all segments are done or downloadedBytes >= contentLength
-      if (this.downloadedBytes > 0 && (this.contentLength === 0 || this.downloadedBytes === this.contentLength)) {
-        this.contentLength = this.downloadedBytes;
+      if (this.downloadedBytes > 0 && (this.contentLength === 0 || this.downloadedBytes >= this.contentLength)) {
+        this.contentLength = Math.max(this.contentLength, this.downloadedBytes);
         this.status = 'completed';
         this.error = null;
         this.endTime = Date.now();
         this.currentSpeed = 0;
         this.notify();
+      } else if (this.downloadedBytes === 0 && this.status === 'downloading') {
+        throw new Error('Download failed: 0 bytes received from server. Link may be expired, redirected, or require browser authorization.');
       }
     } catch (err) {
       if (this.status === 'paused' || this.status === 'cancelled' || this.abortController?.signal?.aborted) return;
@@ -508,6 +516,21 @@ export class MultiInterfaceDownload {
       const defaultRouteDelta = this.defaultRouteStats.bytesDownloaded - lastDefaultRouteBytes;
       this.defaultRouteStats.currentSpeed = Math.max(0, Math.round(defaultRouteDelta / deltaSec));
       lastDefaultRouteBytes = this.defaultRouteStats.bytesDownloaded;
+
+      // When only 1 physical adapter is active, attribute total active speed and bytes to it so UI and visualizer stay in sync
+      if (this.interfaces.length === 1) {
+        const singleAddr = this.interfaces[0].address;
+        if (this.interfaceStats[singleAddr]) {
+          this.interfaceStats[singleAddr].currentSpeed = Math.max(
+            this.interfaceStats[singleAddr].currentSpeed,
+            this.currentSpeed
+          );
+          this.interfaceStats[singleAddr].bytesDownloaded = Math.max(
+            this.interfaceStats[singleAddr].bytesDownloaded,
+            this.downloadedBytes
+          );
+        }
+      }
 
       this.lastSampleBytes = this.downloadedBytes;
       this.lastSampleTime = now;
@@ -662,15 +685,8 @@ export class MultiInterfaceDownload {
             expectedTotal: this.contentLength,
             signal: this.abortController.signal
           });
-          if (stream.tdmUsedDefaultRoute && route) {
-            this.unavailableInterfaces.add(route);
+          if (stream.tdmUsedDefaultRoute) {
             this.allowDefaultRoute = true;
-            if (this.interfaceStats[route]) {
-              this.interfaceStats[route].activeStreams = Math.max(0, this.interfaceStats[route].activeStreams - 1);
-            }
-            route = null;
-            seg.interfaceAddress = null;
-            this.notify();
           }
           this.activeStreams.set(seg.id, { stream, adapterAddress: route });
 
@@ -703,8 +719,9 @@ export class MultiInterfaceDownload {
                 seg.downloaded += toWrite.length;
                 this.downloadedBytes += toWrite.length;
 
-                if (route && this.interfaceStats[route]) {
-                  this.interfaceStats[route].bytesDownloaded += toWrite.length;
+                const targetRoute = route || (this.interfaces.length === 1 ? this.interfaces[0].address : null);
+                if (targetRoute && this.interfaceStats[targetRoute]) {
+                  this.interfaceStats[targetRoute].bytesDownloaded += toWrite.length;
                 } else {
                   this.defaultRouteStats.bytesDownloaded += toWrite.length;
                 }
@@ -802,7 +819,7 @@ export class MultiInterfaceDownload {
         !this.pausedInterfaces.has(iface.address) && !this.unavailableInterfaces.has(iface.address)
       );
       if (availableInterface) route = availableInterface.address;
-      else if (this.allowDefaultRoute) route = null;
+      else if (this.allowDefaultRoute) route = this.interfaces.find(iface => !this.pausedInterfaces.has(iface.address))?.address || null;
       else await new Promise(resolve => setTimeout(resolve, 400));
     }
     if (this.status !== 'downloading') return;
@@ -830,117 +847,138 @@ export class MultiInterfaceDownload {
       this.fd = fs.openSync(this.outputPath, 'w+');
     };
 
-    // Without range support a partial file cannot be resumed safely. Start over
-    // once, and avoid retry loops that would repeatedly transfer gigabytes.
-    if (resumeOffset === 0 && this.downloadedBytes > 0) resetFallbackProgress();
-    if (this.fd === null) this.fd = fs.openSync(this.outputPath, resumeOffset > 0 ? 'r+' : 'w+');
-    if (resumeOffset === 0) fs.ftruncateSync(this.fd, 0);
-    let responseBytes = 0;
+    const maxRetries = 5;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      if (this.status !== 'downloading') return;
+      let resumeOffset = this.supportsRanges && this.contentLength > 0 ? this.downloadedBytes : 0;
 
-    await new Promise((resolve, reject) => {
-      let settled = false;
-      const finish = (err) => {
-        if (settled) return;
-        settled = true;
-        if (err) reject(err);
-        else resolve();
-      };
-      const headers = {
-        'User-Agent': 'Mozilla/5.0 TurboDownloadManager/1.0',
-        'Accept-Encoding': 'identity'
-      };
-      if (resumeOffset > 0) headers.Range = `bytes=${resumeOffset}-`;
-      requestWithRedirects(this.url, {
-        method: 'GET',
-        signal: this.abortController.signal,
-        headers,
-        ...(route ? { localAddress: route, ...(!route.includes(':') ? { family: 4 } : {}) } : {})
-      }).then(({ response: res, finalUrl }) => {
-        if (res.tdmUsedDefaultRoute && route) {
-          this.unavailableInterfaces.add(route);
-          this.allowDefaultRoute = true;
-          route = null;
-        }
-        this.url = finalUrl;
-        if (this.status !== 'downloading' || (route && this.pausedInterfaces.has(route))) {
-          res.destroy();
-          return finish();
-        }
-        if (resumeOffset > 0 && res.statusCode === 200) {
-          // The server stopped honoring ranges; use this full response as a
-          // clean restart instead of appending a duplicate copy to the file.
-          resumeOffset = 0;
-          responseBytes = 0;
-          this.supportsRanges = false;
-          resetFallbackProgress();
-          this.notify();
-        } else if (resumeOffset > 0) {
-          const range = res.headers['content-range']?.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
-          if (res.statusCode !== 206 || !range || Number(range[1]) !== resumeOffset) {
-            res.resume();
-            return reject(new Error('The server did not return the requested resume range'));
-          }
-          if (range[3] !== '*') this.contentLength = Number(range[3]);
-        }
-        if (res.statusCode < 200 || res.statusCode >= 300) {
-          res.resume();
-          return reject(new Error(`Server returned HTTP ${res.statusCode}`));
-        }
-        this.activeStreams.set('fallback', { stream: res, adapterAddress: route, isFallback: true });
-        res.once('close', () => this.activeStreams.delete('fallback'));
-        const responseLength = parseInt(res.headers['content-length'] || '0', 10);
-        if (res.statusCode === 200 && responseLength > 0) {
-          // The full GET response is authoritative; a range probe may have
-          // reported a stale size for a changing or redirected resource.
-          this.contentLength = responseLength;
-        }
-        res.on('data', (chunk) => {
-          if (this.status !== 'downloading') {
-            res.destroy();
-            return finish();
-          }
-          try {
-            fs.writeSync(this.fd, chunk, 0, chunk.length, resumeOffset + responseBytes);
-            responseBytes += chunk.length;
-            this.downloadedBytes = resumeOffset + responseBytes;
-            if (route && this.interfaceStats[route]) {
-              this.interfaceStats[route].bytesDownloaded += chunk.length;
-            } else {
-              this.defaultRouteStats.bytesDownloaded += chunk.length;
+      // Without range support a partial file cannot be resumed safely. Start over
+      // once, and avoid retry loops that would repeatedly transfer gigabytes.
+      if (resumeOffset === 0 && this.downloadedBytes > 0) resetFallbackProgress();
+      if (this.fd === null) this.fd = fs.openSync(this.outputPath, resumeOffset > 0 ? 'r+' : 'w+');
+      if (resumeOffset === 0) fs.ftruncateSync(this.fd, 0);
+      let responseBytes = 0;
+
+      try {
+        await new Promise((resolve, reject) => {
+          let settled = false;
+          const finish = (err) => {
+            if (settled) return;
+            settled = true;
+            if (err) reject(err);
+            else resolve();
+          };
+          const headers = {
+            'User-Agent': 'Mozilla/5.0 TurboDownloadManager/1.0',
+            'Accept-Encoding': 'identity'
+          };
+          if (resumeOffset > 0) headers.Range = `bytes=${resumeOffset}-`;
+          requestWithRedirects(this.url, {
+            method: 'GET',
+            signal: this.abortController.signal,
+            headers,
+            ...(route ? { localAddress: route, ...(!route.includes(':') ? { family: 4 } : {}) } : {})
+          }).then(({ response: res, finalUrl }) => {
+            if (res.tdmUsedDefaultRoute && route) {
+              this.allowDefaultRoute = true;
+              // Retain route identifier so interface telemetry continues to credit this adapter
             }
-            // Chunked responses have no declared total. Keep the displayed
-            // total at least as large as the bytes received until EOF confirms it.
-            if (this.contentLength > 0 && this.downloadedBytes > this.contentLength) {
+            this.url = finalUrl;
+            if (this.status !== 'downloading' || (route && this.pausedInterfaces.has(route))) {
+              res.destroy();
+              return finish();
+            }
+            if (resumeOffset > 0 && res.statusCode === 200) {
+              // The server stopped honoring ranges; use this full response as a
+              // clean restart instead of appending a duplicate copy to the file.
+              resumeOffset = 0;
+              responseBytes = 0;
+              this.supportsRanges = false;
+              resetFallbackProgress();
+              this.notify();
+            } else if (resumeOffset > 0) {
+              const range = res.headers['content-range']?.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
+              if (res.statusCode !== 206 || !range || Number(range[1]) !== resumeOffset) {
+                res.resume();
+                return reject(new Error('The server did not return the requested resume range'));
+              }
+              if (range[3] !== '*') this.contentLength = Number(range[3]);
+            }
+            if (res.statusCode < 200 || res.statusCode >= 300) {
+              res.resume();
+              return reject(new Error(`Server returned HTTP ${res.statusCode}`));
+            }
+            this.activeStreams.set('fallback', { stream: res, adapterAddress: route, isFallback: true });
+            res.once('close', () => this.activeStreams.delete('fallback'));
+            const responseLength = parseInt(res.headers['content-length'] || '0', 10);
+            if (res.statusCode === 200 && responseLength > 0) {
+              this.contentLength = responseLength;
+            }
+            res.on('data', (chunk) => {
+              if (this.status !== 'downloading') {
+                res.destroy();
+                return finish();
+              }
+              try {
+                fs.writeSync(this.fd, chunk, 0, chunk.length, resumeOffset + responseBytes);
+                responseBytes += chunk.length;
+                this.downloadedBytes = resumeOffset + responseBytes;
+                const targetRoute = route || (this.interfaces.length > 0 ? this.interfaces[0].address : null);
+                if (targetRoute && this.interfaceStats[targetRoute]) {
+                  this.interfaceStats[targetRoute].bytesDownloaded += chunk.length;
+                } else {
+                  this.defaultRouteStats.bytesDownloaded += chunk.length;
+                }
+                // Chunked responses have no declared total. Keep the displayed
+                // total at least as large as the bytes received until EOF confirms it.
+                if (this.contentLength > 0 && this.downloadedBytes > this.contentLength) {
+                  this.contentLength = this.downloadedBytes;
+                }
+              } catch (writeErr) {
+                res.destroy();
+                finish(new Error(`Could not write the download to disk: ${writeErr.message}`));
+              }
+            });
+            res.on('end', () => {
+              if (this.downloadedBytes === 0) {
+                return finish(new Error('The server returned an empty file; download was not completed'));
+              }
+              if (this.contentLength > 0 && this.downloadedBytes !== this.contentLength) {
+                return finish(new Error(`Download ended early (${this.downloadedBytes} of ${this.contentLength} bytes)`));
+              }
               this.contentLength = this.downloadedBytes;
-            }
-          } catch (writeErr) {
-            res.destroy();
-            finish(new Error(`Could not write the download to disk: ${writeErr.message}`));
-          }
+              finish();
+            });
+            res.on('error', (err) => {
+              if (this.status === 'paused' || this.status === 'cancelled') return finish();
+              finish(err);
+            });
+            res.on('aborted', () => {
+              if (this.status === 'paused' || this.status === 'cancelled') return finish();
+              finish(new Error('The server closed the connection before the file finished downloading'));
+            });
+          }).catch((err) => {
+            if (this.status === 'paused' || this.status === 'cancelled') return finish();
+            finish(err);
+          });
         });
-        res.on('end', () => {
-          if (this.downloadedBytes === 0) {
-            return finish(new Error('The server returned an empty file; download was not completed'));
-          }
-          if (this.contentLength > 0 && this.downloadedBytes !== this.contentLength) {
-            return finish(new Error(`Download ended early (${this.downloadedBytes} of ${this.contentLength} bytes)`));
-          }
-          this.contentLength = this.downloadedBytes;
-          finish();
-        });
-        res.on('error', (err) => {
-          if (this.status === 'paused' || this.status === 'cancelled') return finish();
-          finish(err);
-        });
-        res.on('aborted', () => {
-          if (this.status === 'paused' || this.status === 'cancelled') return finish();
-          finish(new Error('The server closed the connection before the file finished downloading'));
-        });
-      }).catch((err) => {
-        if (this.status === 'paused' || this.status === 'cancelled') return finish();
-        finish(err);
-      });
-    });
+
+        // Download succeeded without error
+        break;
+      } catch (streamErr) {
+        if (this.status === 'paused' || this.status === 'cancelled' || this.abortController?.signal?.aborted) return;
+        const isNetworkDrop = /reset|timeout|econnreset|etimedout|socket hang up|premature close|closed|aborted|broken pipe|epipe/i.test(streamErr.message || '');
+        if (isNetworkDrop && attempt < maxRetries && (this.supportsRanges !== false || this.contentLength === 0)) {
+          const delayMs = Math.min(5000, (attempt + 1) * 1500);
+          console.warn(`[Turbo Downloader] Network dropped (${streamErr.message}) at ${formatByteCount(this.downloadedBytes)}. Reconnecting and resuming in ${delayMs / 1000}s (attempt ${attempt + 1}/${maxRetries})...`);
+          this.error = `Connection reset; auto-resuming from ${formatByteCount(this.downloadedBytes)} (retry ${attempt + 1}/${maxRetries})...`;
+          this.notify();
+          await new Promise(r => setTimeout(r, delayMs));
+          continue;
+        }
+        throw streamErr;
+      }
+    }
   }
 
   pause() {

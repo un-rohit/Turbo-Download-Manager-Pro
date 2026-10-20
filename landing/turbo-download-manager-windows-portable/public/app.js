@@ -469,15 +469,24 @@ function updateGlobalSpeed() {
     if (item.status === 'downloading') {
       totalSpeed += item.currentSpeed || 0;
       defaultRouteSpeed += item.defaultRoute?.currentSpeed || 0;
-      if (item.interfaces) {
+      if (item.interfaces && item.interfaces.length > 0) {
         item.interfaces.forEach(iface => {
           // Ignore rates tied to old adapter addresses after DHCP or reconnect.
           if (eligibleAddresses.has(iface.address)) {
-            adapterSpeeds[iface.address] = (adapterSpeeds[iface.address] || 0) + (iface.currentSpeed || 0);
+            const ifaceSpeed = (item.interfaces.length === 1 && (!iface.currentSpeed || iface.currentSpeed === 0))
+              ? (item.currentSpeed || 0)
+              : (iface.currentSpeed || 0);
+            adapterSpeeds[iface.address] = (adapterSpeeds[iface.address] || 0) + ifaceSpeed;
           }
         });
       }
     }
+  }
+
+  // When only 1 physical adapter is active/eligible, attribute all downloading bandwidth to it
+  if (eligibleInterfaces.length === 1 && totalSpeed > 0) {
+    const singleAddr = eligibleInterfaces[0].address;
+    adapterSpeeds[singleAddr] = Math.max(adapterSpeeds[singleAddr] || 0, totalSpeed);
   }
 
   // Keep OS-routed bytes separate instead of inventing per-adapter rates.
@@ -565,10 +574,16 @@ function renderActiveDownloads() {
     const contribsHtml = (showDetails ? (item.interfaces || []).map((iface, idx) => {
       const isIfacePaused = !!iface.paused;
       const color = INTERFACE_COLORS[idx % INTERFACE_COLORS.length];
+      const displayedBytes = (item.interfaces.length === 1)
+        ? Math.max(iface.bytesDownloaded || 0, item.downloadedBytes || 0)
+        : (iface.bytesDownloaded || 0);
+      const displayedSpeed = (item.interfaces.length === 1 && !isPaused && !isIfacePaused)
+        ? Math.max(iface.currentSpeed || 0, item.currentSpeed || 0)
+        : (iface.currentSpeed || 0);
       return `
         <div class="contrib-pill ${isIfacePaused ? 'contrib-pill-paused' : ''}">
           <span class="contrib-dot" style="background: ${isIfacePaused ? '#ffb800' : color}"></span>
-          <span><strong>${escapeHtml(iface.name || 'Network adapter')}</strong>: ${formatBytes(iface.bytesDownloaded)} (${isIfacePaused ? '<span style="color:#ffb800;">PAUSED</span>' : (isPaused ? '0 B/s' : formatSpeed(iface.currentSpeed))})</span>
+          <span><strong>${escapeHtml(iface.name || 'Network adapter')}</strong>: ${formatBytes(displayedBytes)} (${isIfacePaused ? '<span style="color:#ffb800;">PAUSED</span>' : (isPaused ? '0 B/s' : formatSpeed(displayedSpeed))})</span>
           <button type="button" class="btn btn-xs ${isIfacePaused ? 'btn-resume-device' : 'btn-pause-device'}" onclick="toggleDownloadInterface('${item.id}', '${iface.address}', ${isIfacePaused})" title="${isIfacePaused ? 'Resume this device — it will resume downloading' : 'Pause this device — other devices will complete its download'}">
             ${isIfacePaused ? '▶ Resume' : '⏸ Pause'}
           </button>
@@ -634,13 +649,28 @@ function renderActiveDownloads() {
         <div class="task-details ${showDetails ? 'is-open' : ''}">
           <button type="button" class="task-details-toggle" onclick="toggleDownloadDetails('${item.id}')" aria-expanded="${showDetails}" aria-controls="details-${item.id}">
             <span>${showDetails ? 'Hide network details' : 'Network details'}</span>
-            <span class="task-details-count">${segmentCount} segments · ${connectionCount} adapters</span>
+            <span class="task-details-count">${segmentCount > 0 ? `${segmentCount} segments · ` : ''}${connectionCount} adapter${connectionCount === 1 ? '' : 's'}</span>
           </button>
           <div id="details-${item.id}" class="task-details-content" ${showDetails ? '' : 'hidden'}>
-            <div class="segment-map-title">DYNAMIC MULTI-INTERFACE CHUNK MAP</div>
-            <div class="segment-grid">
-              ${segmentsHtml || '<div style="color: #64748b; font-size: 0.75rem">Allocating segments across bonded interfaces...</div>'}
-            </div>
+            <div class="segment-map-title">${segmentCount > 0 ? `DYNAMIC MULTI-INTERFACE CHUNK MAP (${segmentCount} SEGMENTS)` : 'HIGH-SPEED DIRECT STREAM'}</div>
+            ${segmentCount > 0 ? `
+              <div class="segment-grid">${segmentsHtml}</div>
+            ` : (item.status === 'downloading' ? `
+              <div class="single-connection-visualizer">
+                <div class="single-conn-header">
+                  <span class="single-conn-title">⚡ Sequential Direct Stream (${escapeHtml(item.interfaces?.[0]?.name || 'Primary Adapter')})</span>
+                  <span class="single-conn-stats mono">${formatBytes(item.downloadedBytes)} / ${formatBytes(item.contentLength || item.downloadedBytes)} · ${percent}%</span>
+                </div>
+                <div class="single-conn-bar">
+                  <div class="single-conn-progress" style="width: ${percent}%;"></div>
+                </div>
+                <div class="single-conn-note">Continuous high-throughput transfer active · ${formatSpeed(item.currentSpeed)}</div>
+              </div>
+            ` : `
+              <div class="segment-grid">
+                <div style="color: #64748b; font-size: 0.75rem">${item.status === 'probing' ? 'Probing remote host for byte ranges...' : 'Allocating segments across bonded interfaces...'}</div>
+              </div>
+            `)}
             <div class="adapter-contribution-row">${contribsHtml}</div>
           </div>
         </div>
@@ -935,14 +965,45 @@ window.restartDownload = async function(id) {
   }
 };
 
-// 5. Render History
+// 5. Render History & Filters
+let currentHistoryFilter = 'all';
+let currentHistorySearch = '';
+
+window.filterHistory = function(filter) {
+  currentHistoryFilter = filter || 'all';
+  document.querySelectorAll('.history-tab-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === currentHistoryFilter);
+  });
+  renderHistory();
+};
+
+window.onHistorySearchInput = function(query) {
+  currentHistorySearch = (query || '').toLowerCase().trim();
+  renderHistory();
+};
+
+window.clearCompletedHistory = async function() {
+  const completedItems = downloadHistory.filter(h => h.status === 'completed' || (h.downloadedBytes > 0 && h.status !== 'downloading'));
+  if (!completedItems.length) return appAlert('No completed downloads to clear.', { title: 'History Clean' });
+  if (!await appConfirm(`Remove ${completedItems.length} completed item(s) from history? The files will stay on your computer.`, { title: 'Clear Completed', confirmLabel: 'Clear' })) return;
+  for (const item of completedItems) {
+    try {
+      await postDownloadAction(`/api/download-history/${encodeURIComponent(item.id)}/remove`);
+    } catch {}
+  }
+  const completedIds = new Set(completedItems.map(i => String(i.id)));
+  downloadHistory = downloadHistory.filter(item => !completedIds.has(String(item.id)));
+  renderHistory();
+};
+
 function getHistoryOpenAction(filename = '') {
   if (/\.(mp4|m4v|mkv|mov|avi|webm|mpeg|mpg|wmv|flv|3gp|mp3|m4a|aac|wav|flac|ogg|opus|wma)$/i.test(filename)) {
-    return { label: 'Play', kind: 'media' };
+    return { label: 'Play', icon: '▶', kind: 'media' };
   }
-  if (/\.(msi|msix|appx|deb|rpm|dmg|pkg|appimage)$/i.test(filename)) return { label: 'Install', kind: 'installer' };
-  if (/\.(exe|com|scr)$/i.test(filename)) return { label: 'Run', kind: 'installer' };
-  return { label: 'Open', kind: 'file' };
+  if (/\.(msi|msix|appx|deb|rpm|dmg|pkg|appimage)$/i.test(filename)) return { label: 'Install', icon: '📦', kind: 'installer' };
+  if (/\.(exe|com|scr)$/i.test(filename)) return { label: 'Run', icon: '⚡', kind: 'installer' };
+  if (/\.(zip|7z|rar|tar|gz|bz2|iso)$/i.test(filename)) return { label: 'Extract', icon: '🗜', kind: 'archive' };
+  return { label: 'Open', icon: '📄', kind: 'file' };
 }
 
 function renderHistory() {
@@ -950,9 +1011,33 @@ function renderHistory() {
   const tbody = document.getElementById('historyList');
   if (!tbody) return;
 
-  if (downloadHistory.length === 0) {
+  let itemsToRender = downloadHistory;
+  if (currentHistorySearch) {
+    itemsToRender = itemsToRender.filter(item =>
+      (item.filename || '').toLowerCase().includes(currentHistorySearch) ||
+      (item.url || '').toLowerCase().includes(currentHistorySearch)
+    );
+  }
+  if (currentHistoryFilter === 'completed') {
+    itemsToRender = itemsToRender.filter(item => item.status === 'completed' && Number(item.downloadedBytes || item.contentLength || 0) > 0);
+  } else if (currentHistoryFilter === 'error') {
+    itemsToRender = itemsToRender.filter(item => item.status === 'error' || Number(item.downloadedBytes || item.contentLength || 0) === 0);
+  } else if (currentHistoryFilter === 'video') {
+    itemsToRender = itemsToRender.filter(item => /\.(mp4|mkv|mov|avi|webm|flv|wmv|ts|3gp|m4v|mp3|m4a|wav|flac)/i.test(item.filename || ''));
+  } else if (currentHistoryFilter === 'programs') {
+    itemsToRender = itemsToRender.filter(item => /\.(exe|msi|iso|bin|appx|dmg|pkg|deb|rpm)/i.test(item.filename || ''));
+  } else if (currentHistoryFilter === 'archives') {
+    itemsToRender = itemsToRender.filter(item => /\.(zip|7z|rar|tar|gz|bz2)/i.test(item.filename || ''));
+  } else if (currentHistoryFilter === 'documents') {
+    itemsToRender = itemsToRender.filter(item => /\.(pdf|doc|docx|xls|xlsx|ppt|pptx|txt|epub)/i.test(item.filename || ''));
+  }
+
+  if (itemsToRender.length === 0) {
     selectedHistoryIds.clear();
-    tbody.innerHTML = `<tr><td colspan="6" class="empty-table-cell">No completed downloads yet</td></tr>`;
+    const emptyMsg = downloadHistory.length === 0
+      ? 'No previous downloads found'
+      : 'No downloads match the current filter or search query';
+    tbody.innerHTML = `<tr><td colspan="6" class="empty-table-cell">${emptyMsg}</td></tr>`;
     updateHistoryBulkControls();
     return;
   }
@@ -962,7 +1047,7 @@ function renderHistory() {
     if (!availableIds.has(id)) selectedHistoryIds.delete(id);
   }
 
-  tbody.innerHTML = downloadHistory.map(item => {
+  tbody.innerHTML = itemsToRender.map(item => {
     const itemId = String(item.id);
     const isSelected = selectedHistoryIds.has(itemId);
     const date = item.completedAt || item.updatedAt ? new Date(item.completedAt || item.updatedAt) : null;
@@ -972,14 +1057,14 @@ function renderHistory() {
     const isFailed = item.status === 'error' || (item.status === 'completed' && size === 0);
     const statusText = isCompleted ? 'COMPLETED' : (isFailed ? 'FAILED' : item.status.toUpperCase());
     const filename = escapeHtml(item.filename || 'download.bin');
-    const rawError = item.error || (item.supportsRanges === false && size > 0 ? 'This host cannot resume partial downloads.' : '');
+    const rawError = item.error || (size === 0 ? '0 bytes received — connection closed before data arrived' : (item.supportsRanges === false && size > 0 ? 'This host cannot resume partial downloads.' : ''));
     const errorSummary = describeDownloadError(rawError);
     const historyDetails = [
       item.error,
       item.supportsRanges === false ? 'This host does not support byte-range requests. The download used one connection and cannot resume from its partial data.' : ''
     ].filter(Boolean).join(' ');
     const errorTitle = historyDetails ? ` title="${escapeHtml(historyDetails)}"` : '';
-    const sizeLabel = isFailed && size > 0 ? `Partial · ${formatBytes(size)}` : formatBytes(size);
+    const sizeLabel = isFailed && size === 0 ? '0 B (Empty)' : (isFailed && size > 0 ? `Partial · ${formatBytes(size)}` : formatBytes(size));
     const openAction = getHistoryOpenAction(item.filename || '');
     const canOpenFile = isCompleted && item.outputPath;
 
@@ -989,7 +1074,7 @@ function renderHistory() {
           <input class="history-row-checkbox" type="checkbox" aria-label="Select ${filename}" value="${escapeHtml(itemId)}" ${isSelected ? 'checked' : ''} onchange="toggleHistorySelection(this)">
         </td>
         <td class="history-filename-cell">
-          <span class="history-file-name">${filename}</span>
+          <span class="history-file-name" title="${filename}">${filename}</span>
           ${isFailed ? `<div class="history-error-detail" title="${escapeHtml(historyDetails || errorSummary)}"><span>${escapeHtml(errorSummary)}</span><button type="button" class="history-retry-link" onclick="redownloadHistoryItem('${itemId}')">Retry</button></div>` : ''}
         </td>
         <td class="mono"${isFailed && size > 0 ? ` title="${formatBytes(size)} downloaded before the failure${Number(item.contentLength) > size ? ` out of ${formatBytes(Number(item.contentLength))}` : ''}"` : ''}>${sizeLabel}</td>
@@ -1000,15 +1085,32 @@ function renderHistory() {
         </td>
         <td class="mono">${dateStr}</td>
         <td>
-          <div class="action-menu-wrap history-action-wrap">
-            ${canOpenFile ? `<button type="button" class="btn btn-sm btn-glass" onclick="openHistoryItem('${escapeHtml(itemId)}')">${openAction.label}</button>` : ''}
-            <button type="button" class="btn btn-sm btn-glass" onclick="toggleDownloadMenu(event, 'history-${item.id}')">More ▾</button>
+          <div class="history-actions-row">
+            ${canOpenFile ? `
+              <button type="button" class="btn btn-xs btn-primary-glass" onclick="openHistoryItem('${escapeHtml(itemId)}')" title="${openAction.label} this file">
+                ${openAction.icon} ${openAction.label}
+              </button>
+            ` : ''}
+            ${isFailed ? `
+              <button type="button" class="btn btn-xs btn-retry" onclick="redownloadHistoryItem('${escapeHtml(itemId)}')" title="Resume / Re-download file">
+                🔄 Retry
+              </button>
+            ` : ''}
+            <button type="button" class="btn btn-xs btn-glass" onclick="openHistoryItemFolder('${escapeHtml(itemId)}')" title="Show in Windows Explorer">
+              📁 Folder
+            </button>
+            <button type="button" class="btn btn-xs btn-glass" onclick="copyDownloadUrl('${escapeHtml(itemId)}', 'history')" title="Copy original download link">
+              🔗 Copy
+            </button>
+            <button type="button" class="btn btn-xs btn-glass" onclick="toggleDownloadMenu(event, 'history-${item.id}')" title="More options">
+              ⋯
+            </button>
             <div id="history-${item.id}" class="download-action-menu" hidden>
-              <button type="button" onclick="redownloadHistoryItem('${item.id}')">Download again</button>
-              <button type="button" onclick="openHistoryItemFolder('${item.id}')">Show in folder</button>
-              <button type="button" onclick="copyDownloadUrl('${item.id}', 'history')">Copy download link</button>
-              <button type="button" onclick="removeHistoryItem('${item.id}')">Remove from history</button>
-              <button type="button" class="danger-action" onclick="deleteHistoryFile('${item.id}')">Delete downloaded file</button>
+              <button type="button" onclick="redownloadHistoryItem('${item.id}')">🔄 Download again</button>
+              <button type="button" onclick="openHistoryItemFolder('${item.id}')">📁 Show in folder</button>
+              <button type="button" onclick="copyDownloadUrl('${item.id}', 'history')">🔗 Copy download link</button>
+              <button type="button" onclick="removeHistoryItem('${item.id}')">🗑 Remove from history</button>
+              <button type="button" class="danger-action" onclick="deleteHistoryFile('${item.id}')">❌ Delete file from disk</button>
             </div>
           </div>
         </td>
@@ -2181,7 +2283,11 @@ class QuantumEnergyFlowCanvas {
     const sources = ifacesToDraw.map((iface, index) => {
       const position = this.getAdapterPosition(iface.address, index, ifaceCount, bounds);
       const isPaused = hasCurrentSelection ? !selectedInterfaces.has(iface.address) : !iface.online;
-      const speed = isPaused ? 0 : (this.isSurgeDemo ? 22 * 1024 * 1024 : (this.adapterSpeeds[iface.address] || 0));
+      const unpausedIfaces = ifacesToDraw.filter(i => hasCurrentSelection ? selectedInterfaces.has(i.address) : i.online);
+      let speed = isPaused ? 0 : (this.isSurgeDemo ? 22 * 1024 * 1024 : (this.adapterSpeeds[iface.address] || 0));
+      if (!isPaused && speed === 0 && unpausedIfaces.length === 1 && unpausedIfaces[0].address === iface.address && activeTotalSpeed > 0) {
+        speed = activeTotalSpeed;
+      }
       const now = performance.now();
       if (speed > 0) this.lastTraffic.set(iface.address, { at: now, speed });
       const previousTraffic = this.lastTraffic.get(iface.address);

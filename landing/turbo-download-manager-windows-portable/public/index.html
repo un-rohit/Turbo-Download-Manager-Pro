@@ -180,9 +180,26 @@
             <span class="section-icon">🕒</span>
             <h2>Recent Downloads</h2>
           </div>
-          <button id="btnOpenDownloadsFolder" class="btn btn-sm btn-glass">
-            Open Downloads Folder
-          </button>
+          <div class="history-header-actions">
+            <input type="text" id="historySearchInput" class="history-search-input" placeholder="🔍 Search recent downloads..." oninput="onHistorySearchInput(this.value)">
+            <button id="btnClearCompleted" class="btn btn-sm btn-glass" onclick="clearCompletedHistory()" title="Clear completed items from history list">
+              🧹 Clear Completed
+            </button>
+            <button id="btnOpenDownloadsFolder" class="btn btn-sm btn-glass" title="Open the default downloads folder in Windows Explorer">
+              📁 Open Downloads Folder
+            </button>
+          </div>
+        </div>
+
+        <!-- History Filter Bar -->
+        <div class="history-filter-bar">
+          <button type="button" class="history-tab-btn active" data-filter="all" onclick="filterHistory('all')">All</button>
+          <button type="button" class="history-tab-btn" data-filter="completed" onclick="filterHistory('completed')">Completed</button>
+          <button type="button" class="history-tab-btn" data-filter="error" onclick="filterHistory('error')">Failed / Errors</button>
+          <button type="button" class="history-tab-btn" data-filter="video" onclick="filterHistory('video')">Videos</button>
+          <button type="button" class="history-tab-btn" data-filter="programs" onclick="filterHistory('programs')">Programs</button>
+          <button type="button" class="history-tab-btn" data-filter="archives" onclick="filterHistory('archives')">Archives</button>
+          <button type="button" class="history-tab-btn" data-filter="documents" onclick="filterHistory('documents')">Documents</button>
         </div>
 
         <div id="historyTableContainer" class="history-table-container">

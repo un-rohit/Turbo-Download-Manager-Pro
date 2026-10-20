@@ -914,6 +914,66 @@ body {
   color: #032014;
 }
 
+/* Single Connection Direct Stream Visualizer */
+.single-connection-visualizer {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 14px;
+  background: rgba(0, 0, 0, 0.35);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(0, 242, 254, 0.15);
+}
+
+.single-conn-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78rem;
+}
+
+.single-conn-title {
+  color: var(--accent-cyan);
+  font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.single-conn-stats {
+  color: var(--text-muted);
+  font-size: 0.75rem;
+}
+
+.single-conn-bar {
+  height: 8px;
+  background: rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  overflow: hidden;
+  position: relative;
+}
+
+.single-conn-progress {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-cyan), #38ef7d);
+  border-radius: 999px;
+  transition: width 0.3s ease;
+  position: relative;
+}
+
+.single-conn-progress::after {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  animation: shine 1.2s infinite;
+}
+
+.single-conn-note {
+  font-size: 0.72rem;
+  color: var(--text-faint);
+}
+
 /* Adapter Contribution Pills */
 .adapter-contribution-row {
   display: flex;
@@ -1007,7 +1067,102 @@ body {
   border-color: #ff3366;
 }
 
-/* History Table */
+/* History Table & Controls */
+.history-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.history-search-input {
+  background: rgba(10, 16, 29, 0.85);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  padding: 6px 12px;
+  color: var(--text-main);
+  font-size: 0.8rem;
+  outline: none;
+  min-width: 180px;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.history-search-input:focus {
+  border-color: var(--accent-cyan);
+  box-shadow: 0 0 0 2px rgba(0, 242, 254, 0.15);
+}
+
+.history-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 16px 12px;
+  overflow-x: auto;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  margin-bottom: 8px;
+}
+
+.history-tab-btn {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  padding: 4px 10px;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s ease;
+}
+
+.history-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: #f8fafc;
+}
+
+.history-tab-btn.active {
+  background: rgba(0, 242, 254, 0.12);
+  border-color: rgba(0, 242, 254, 0.4);
+  color: var(--accent-cyan);
+  font-weight: 700;
+}
+
+.history-actions-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: nowrap;
+  position: relative;
+}
+
+.btn-primary-glass {
+  background: rgba(0, 245, 160, 0.12);
+  border: 1px solid rgba(0, 245, 160, 0.35);
+  color: #00f5a0;
+  font-weight: 700;
+}
+
+.btn-primary-glass:hover {
+  background: rgba(0, 245, 160, 0.25);
+  border-color: #00f5a0;
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(0, 245, 160, 0.3);
+}
+
+.btn-retry {
+  background: rgba(0, 242, 254, 0.12);
+  border: 1px solid rgba(0, 242, 254, 0.35);
+  color: var(--accent-cyan);
+  font-weight: 700;
+}
+
+.btn-retry:hover {
+  background: rgba(0, 242, 254, 0.25);
+  border-color: var(--accent-cyan);
+  color: #ffffff;
+  box-shadow: 0 0 10px rgba(0, 242, 254, 0.3);
+}
+
 .history-table-container {
   overflow-x: auto;
 }
