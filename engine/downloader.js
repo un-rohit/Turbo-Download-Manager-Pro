@@ -509,6 +509,17 @@ export class MultiInterfaceDownload {
       this.defaultRouteStats.currentSpeed = Math.max(0, Math.round(defaultRouteDelta / deltaSec));
       lastDefaultRouteBytes = this.defaultRouteStats.bytesDownloaded;
 
+      // When only 1 physical adapter is active, attribute total active speed to it so UI and visualizer stay in sync
+      if (this.interfaces.length === 1) {
+        const singleAddr = this.interfaces[0].address;
+        if (this.interfaceStats[singleAddr]) {
+          this.interfaceStats[singleAddr].currentSpeed = Math.max(
+            this.interfaceStats[singleAddr].currentSpeed,
+            this.currentSpeed
+          );
+        }
+      }
+
       this.lastSampleBytes = this.downloadedBytes;
       this.lastSampleTime = now;
       this.notify();
@@ -703,8 +714,9 @@ export class MultiInterfaceDownload {
                 seg.downloaded += toWrite.length;
                 this.downloadedBytes += toWrite.length;
 
-                if (route && this.interfaceStats[route]) {
-                  this.interfaceStats[route].bytesDownloaded += toWrite.length;
+                const targetRoute = route || (this.interfaces.length === 1 ? this.interfaces[0].address : null);
+                if (targetRoute && this.interfaceStats[targetRoute]) {
+                  this.interfaceStats[targetRoute].bytesDownloaded += toWrite.length;
                 } else {
                   this.defaultRouteStats.bytesDownloaded += toWrite.length;
                 }

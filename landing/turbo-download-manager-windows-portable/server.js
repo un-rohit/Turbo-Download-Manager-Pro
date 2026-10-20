@@ -444,6 +444,17 @@ export async function handleRequest(req, res) {
         saveSettings({ categories: settings.categories });
       }
 
+      const detectedInterfaces = await getVerifiedNetworkInterfaces();
+      const interfaces = Array.isArray(body.interfaces) && body.interfaces.length > 0
+        ? body.interfaces
+        : detectedInterfaces;
+      const requestedPaused = new Set(Array.isArray(body.pausedInterfaces) ? body.pausedInterfaces : []);
+      for (const iface of interfaces) {
+        if (!iface.online || !downloadManager.isInterfaceEnabled(iface.address)) {
+          requestedPaused.add(iface.address);
+        }
+      }
+
       const task = downloadManager.createDownload({
         url: body.url,
         filename: body.filename,
