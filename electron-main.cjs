@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, nativeImage, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 // Single instance lock to prevent duplicate processes and EADDRINUSE crashes
 const gotTheLock = app.requestSingleInstanceLock();
@@ -80,7 +81,9 @@ if (!gotTheLock) {
 
   function createTray() {
     try {
-      const iconPath = path.join(__dirname, 'extension', 'icons', 'icon16.png');
+      const icoPath = path.join(__dirname, 'app.ico');
+      const pngPath = path.join(__dirname, 'extension', 'icons', 'icon16.png');
+      const iconPath = fs.existsSync(icoPath) ? icoPath : pngPath;
       const trayIcon = nativeImage.createFromPath(iconPath);
       tray = new Tray(trayIcon);
 

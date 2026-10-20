@@ -1,17 +1,17 @@
 # Graph Report - REA  (2026-10-21)
 
 ## Corpus Check
-- 46 files · ~60,479 words
+- 46 files · ~60,498 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 18 file(s) not represented in the graph (top: .css 9, (none) 3, .zip 2)
 
 ## Summary
-- 554 nodes · 858 edges · 42 communities (27 shown, 15 thin omitted)
+- 556 nodes · 860 edges · 37 communities (23 shown, 14 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 11 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `8f07ac56`
+- Built from commit: `30e5e1e3`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -52,11 +52,6 @@
 - turbo-download-manager-extension/content.js
 - turbo-download-manager-windows-portable/extension/content.js
 - turbo-download-manager-windows-portable/server.js
-- ref_node_url
-- ref_node_http
-- engine/network.js
-- turbo-download-manager-windows-portable/engine/network.js
-- turbo-download-manager-windows-portable/sea-entry.cjs
 
 ## God Nodes (most connected - your core abstractions)
 1. `MultiInterfaceDownload` - 22 edges
@@ -73,23 +68,23 @@
 ## Surprising Connections (you probably didn't know these)
 - `handleRequest()` --calls--> `probeUrl()`  [EXTRACTED]
   server.js → engine/downloader.js
+- `getVerifiedNetworkInterfaces()` --calls--> `getNetworkInterfaces()`  [EXTRACTED]
+  server.js → engine/network.js
 - `handleRequest()` --calls--> `getNetworkInterfaces()`  [EXTRACTED]
   server.js → engine/network.js
 - `handleRequest()` --calls--> `runAdapterSpeedTest()`  [EXTRACTED]
   server.js → engine/speedtest.js
-- `getVerifiedNetworkInterfaces()` --calls--> `getNetworkInterfaces()`  [EXTRACTED]
-  server.js → engine/network.js
 - `handleRequest()` --calls--> `probeUrl()`  [EXTRACTED]
   landing/turbo-download-manager-windows-portable/server.js → landing/turbo-download-manager-windows-portable/engine/downloader.js
 
 ## Import Cycles
 - None detected.
 
-## Communities (42 total, 15 thin omitted)
+## Communities (37 total, 14 thin omitted)
 
 ### Community 0 - "server.js"
-Cohesion: 0.16
-Nodes (18): broadcastSSE(), __dirname, __filename, getSettings(), handler(), handleRequest(), isAllowedRequestOrigin(), isPathInside() (+10 more)
+Cohesion: 0.08
+Nodes (31): appDir, projectRoot, server, categorizeInterface(), getNetworkInterfaces(), isVirtualMachineInterface(), testInterfaceConnectivity(), describeSpeedTestError() (+23 more)
 
 ### Community 1 - "public/app.js"
 Cohesion: 0.07
@@ -120,7 +115,7 @@ Cohesion: 0.29
 Nodes (4): initHeroVisualizer(), initSpeedCalculator(), formatTime(), update()
 
 ### Community 9 - "extension/generate-icons.js"
-Cohesion: 0.13
+Cohesion: 0.14
 Nodes (15): crc32(), crcTable, createPNG(), iconsDir, makeChunk(), crc32(), crcTable, createPNG() (+7 more)
 
 ### Community 10 - "Turbo Download Manager — Chrome / Edge Integration Extension"
@@ -152,8 +147,8 @@ Cohesion: 0.10
 Nodes (19): author, description, devDependencies, electron, @electron/packager, electron, @electron/packager, keywords (+11 more)
 
 ### Community 25 - "electron-main.cjs"
-Cohesion: 0.13
-Nodes (8): { app, BrowserWindow, Tray, Menu, nativeImage, shell }, gotTheLock, path, startServer(), { app, BrowserWindow, Tray, Menu, nativeImage, shell }, gotTheLock, path, startServer()
+Cohesion: 0.12
+Nodes (9): { app, BrowserWindow, Tray, Menu, nativeImage, shell }, fs, gotTheLock, path, startServer(), { app, BrowserWindow, Tray, Menu, nativeImage, shell }, gotTheLock, path (+1 more)
 
 ### Community 27 - "Turbo Download Manager Pro ⚡"
 Cohesion: 0.13
@@ -176,44 +171,28 @@ Cohesion: 0.31
 Nodes (7): busyDownloadActions, checkServerStatus(), downloadState, escapeHtml(), formatBytes(), formatSpeed(), renderDownloads()
 
 ### Community 36 - "turbo-download-manager-windows-portable/server.js"
-Cohesion: 0.16
-Nodes (18): broadcastSSE(), __dirname, __filename, getSettings(), handler(), handleRequest(), isAllowedRequestOrigin(), isPathInside() (+10 more)
-
-### Community 37 - "ref_node_url"
-Cohesion: 0.22
-Nodes (6): appDir, projectRoot, server, appDir, projectRoot, server
-
-### Community 38 - "ref_node_http"
-Cohesion: 0.36
-Nodes (4): describeSpeedTestError(), runAdapterSpeedTest(), describeSpeedTestError(), runAdapterSpeedTest()
-
-### Community 39 - "engine/network.js"
-Cohesion: 0.43
-Nodes (5): categorizeInterface(), getNetworkInterfaces(), isVirtualMachineInterface(), testInterfaceConnectivity(), getVerifiedNetworkInterfaces()
-
-### Community 40 - "turbo-download-manager-windows-portable/engine/network.js"
-Cohesion: 0.53
-Nodes (5): categorizeInterface(), getNetworkInterfaces(), isVirtualMachineInterface(), testInterfaceConnectivity(), getVerifiedNetworkInterfaces()
+Cohesion: 0.10
+Nodes (27): categorizeInterface(), getNetworkInterfaces(), isVirtualMachineInterface(), testInterfaceConnectivity(), describeSpeedTestError(), runAdapterSpeedTest(), { spawn }, broadcastSSE() (+19 more)
 
 ## Knowledge Gaps
 - **4 isolated node(s):** `@electron/packager`, `electron`, `@electron/packager`, `electron`
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 241 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **15 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 243 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **14 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `downloadManager` connect `downloadManager` to `server.js`, `extension/generate-icons.js`?**
+- **Why does `downloadManager` connect `downloadManager` to `server.js`?**
   _High betweenness centrality (0.020) - this node is a cross-community bridge._
 - **What connects `@electron/packager`, `electron`, `@electron/packager` to the rest of the system?**
   _4 weakly-connected nodes found - possible documentation gaps or missing edges._
+- **Should `server.js` be split into smaller, more focused modules?**
+  _Cohesion score 0.08156028368794327 - nodes in this community are weakly interconnected._
+- **Why does `downloadManager` connect `downloadManager` to `server.js`, `turbo-download-manager-windows-portable/server.js`?**
+  _High betweenness centrality (0.020) - this node is a cross-community bridge._
 - **Should `public/app.js` be split into smaller, more focused modules?**
   _Cohesion score 0.06901960784313725 - nodes in this community are weakly interconnected._
-- **Why does `downloadManager` connect `downloadManager` to `extension/generate-icons.js`, `turbo-download-manager-windows-portable/server.js`?**
-  _High betweenness centrality (0.020) - this node is a cross-community bridge._
+- **Why does `MultiInterfaceDownload` connect `MultiInterfaceDownload` to `server.js`, `downloadManager`?**
+  _High betweenness centrality (0.019) - this node is a cross-community bridge._
 - **Should `manifest.json` be split into smaller, more focused modules?**
   _Cohesion score 0.1 - nodes in this community are weakly interconnected._
-- **Why does `MultiInterfaceDownload` connect `MultiInterfaceDownload` to `downloadManager`, `extension/generate-icons.js`?**
-  _High betweenness centrality (0.019) - this node is a cross-community bridge._
-- **Should `turbo-download-manager-windows-portable/public/app.js` be split into smaller, more focused modules?**
-  _Cohesion score 0.06901960784313725 - nodes in this community are weakly interconnected._

@@ -1,8 +1,8 @@
 {
   "electron-main.cjs": {
-    "mtime": 1792328566.6475039,
-    "seen": 1792329059.4154437,
-    "ast_hash": "5adf25558cd5090455ae9e73af338839",
+    "mtime": 1792534540.2481954,
+    "seen": 1792535100.3487256,
+    "ast_hash": "dfcec70528a59539dd8efe3919a2e780",
     "semantic_hash": ""
   },
   "engine/downloader.js": {
@@ -66,9 +66,9 @@
     "semantic_hash": ""
   },
   "package.json": {
-    "mtime": 1792328985.750322,
-    "seen": 1792329059.4155025,
-    "ast_hash": "05b4a64dc8d9fc60785a7fd9b9d00b46",
+    "mtime": 1792534550.5978303,
+    "seen": 1792535100.3487988,
+    "ast_hash": "55198be9438bb4f263ff4192e8711046",
     "semantic_hash": ""
   },
   "public/app.js": {
