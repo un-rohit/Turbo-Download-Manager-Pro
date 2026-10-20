@@ -9,7 +9,6 @@ pnpm-debug.log*
 dist/
 out/
 build/
-bin/
 *.exe
 *.msi
 *.zip
@@ -53,6 +52,7 @@ $RECYCLE.BIN/
 
 # Agentic / AI IDE Artifacts
 .gemini/
-.agents/
 .codex/
-graphify-out/
+graphify-out/cache/
+graphify-out/.*
+

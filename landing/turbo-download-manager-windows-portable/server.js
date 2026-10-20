@@ -384,7 +384,9 @@ export async function handleRequest(req, res) {
       const ifaces = verifyConnectivity
         ? await getVerifiedNetworkInterfaces(forceRefresh)
         : await getNetworkInterfaces(false);
-      return sendJson(res, 200, { interfaces: ifaces });
+      return sendJson(res, 200, {
+        interfaces: ifaces.map(iface => ({ ...iface, enabled: downloadManager.isInterfaceEnabled(iface.address) }))
+      });
     } catch (err) {
       return sendJson(res, 500, { error: err.message });
     }
@@ -395,6 +397,17 @@ export async function handleRequest(req, res) {
     try {
       const body = await parseJsonBody(req);
       if (!body.url) return sendJson(res, 400, { error: 'Missing url parameter' });
+
+      const detectedInterfaces = await getVerifiedNetworkInterfaces();
+      const interfaces = Array.isArray(body.interfaces) && body.interfaces.length > 0
+        ? body.interfaces
+        : detectedInterfaces;
+      const requestedPaused = new Set(Array.isArray(body.pausedInterfaces) ? body.pausedInterfaces : []);
+      for (const iface of interfaces) {
+        if (!iface.online || !downloadManager.isInterfaceEnabled(iface.address)) {
+          requestedPaused.add(iface.address);
+        }
+      }
       const probe = await probeUrl(body.url);
       const settings = getSettings();
       const resolved = resolveCategoryFolder(probe.filename, settings);
@@ -435,7 +448,9 @@ export async function handleRequest(req, res) {
         url: body.url,
         filename: body.filename,
         outputDir: downloadPath,
-        interfaces: body.interfaces || [],
+        interfaces,
+        pausedInterfaces: [...requestedPaused],
+        allowDefaultRoute: detectedInterfaces.length === 0,
         connectionsPerInterface: body.connectionsPerInterface || settings.connectionsPerAdapter || 4
       });
 

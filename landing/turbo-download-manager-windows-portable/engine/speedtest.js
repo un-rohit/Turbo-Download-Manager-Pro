@@ -6,6 +6,13 @@ import { URL } from 'node:url';
 const CDN_URL = 'https://speed.cloudflare.com/__down?bytes=25000000'; // 25 MB chunks
 const PING_URL = 'https://speed.cloudflare.com/__down?bytes=0';
 
+function describeSpeedTestError(error, localAddress) {
+  if (error?.code === 'EADDRNOTAVAIL') {
+    return new Error(`Network adapter ${localAddress} is no longer available. Refresh adapters and retry the speed test.`);
+  }
+  return error;
+}
+
 /**
  * Runs a network speed test for exactly 5 seconds on a specific network adapter.
  * @param {string|null} localAddress - IPv4 address of the adapter to test, or null for default.
@@ -51,8 +58,8 @@ export function runAdapterSpeedTest(localAddress, onProgress, durationSec = 5) {
         duration: parseFloat(totalDuration.toFixed(2)),
         mbps: finalMbps,
         speedFormatted,
-        success: !error || totalBytes > 0,
-        error: error ? error.message : undefined
+        success: error?.code === 'EADDRNOTAVAIL' ? false : (!error || totalBytes > 0),
+        error: error ? describeSpeedTestError(error, localAddress).message : undefined
       });
     };
 
@@ -83,7 +90,8 @@ export function runAdapterSpeedTest(localAddress, onProgress, durationSec = 5) {
         startDataStreaming();
       });
 
-      pingReq.on('error', () => {
+      pingReq.on('error', (err) => {
+        if (err.code === 'EADDRNOTAVAIL') return stopTest(err);
         ping = 45;
         startDataStreaming();
       });
@@ -180,6 +188,7 @@ export function runAdapterSpeedTest(localAddress, onProgress, durationSec = 5) {
 
           res.on('error', (err) => {
             if (!isFinished) {
+              if (err.code === 'EADDRNOTAVAIL') return stopTest(err);
               if ((Date.now() - startTime) < targetDurationMs && totalBytes > 0) {
                 setTimeout(fetchNextChunk, 200);
               } else {
@@ -191,6 +200,7 @@ export function runAdapterSpeedTest(localAddress, onProgress, durationSec = 5) {
 
         activeReq.on('error', (err) => {
           if (!isFinished) {
+            if (err.code === 'EADDRNOTAVAIL') return stopTest(err);
             if ((Date.now() - startTime) < targetDurationMs && totalBytes > 0) {
               setTimeout(fetchNextChunk, 200);
             } else {

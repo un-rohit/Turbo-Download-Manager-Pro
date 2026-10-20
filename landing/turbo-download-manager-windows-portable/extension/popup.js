@@ -1,6 +1,8 @@
 const SERVER_URL = 'http://127.0.0.1:4820';
+const MAX_RECENT_DOWNLOADS = 5;
 let isRefreshing = false;
 let downloadState = { active: [], history: [] };
+let recentHistoryOpen = false;
 let pendingCancelId = null;
 let busyDownloadActions = new Set();
 let downloadErrorTimer = null;
@@ -29,7 +31,9 @@ function renderDownloads() {
   const title = document.getElementById('downloadSectionTitle');
   const list = document.getElementById('downloadList');
   const active = downloadState.active.filter(item => ['probing', 'downloading', 'paused'].includes(item.status));
-  const completed = downloadState.history.filter(item => item.status === 'completed').slice(0, 3);
+  const completed = downloadState.history.filter(item => item.status === 'completed').slice(0, MAX_RECENT_DOWNLOADS);
+  const existingRecentSection = list.querySelector('.recent-downloads');
+  const shouldOpenRecent = existingRecentSection ? existingRecentSection.open : (recentHistoryOpen || active.length === 0);
   const rows = [];
 
   active.forEach(item => {
@@ -39,7 +43,7 @@ function renderDownloads() {
     const total = Number(item.contentLength) || 0;
     const downloaded = Number(item.downloadedBytes) || 0;
     const percent = total > 0 ? Math.max(0, Math.min(100, Math.round((downloaded / total) * 100))) : 0;
-    const status = item.status === 'probing' ? 'Connecting' : item.status === 'paused' ? 'Paused' : `${percent}%`;
+    const status = item.status === 'probing' ? 'Connecting' : item.status === 'paused' ? 'Paused' : item.waitingForAdapter ? 'Waiting for network adapter' : `${percent}%`;
     const progressClass = total > 0 ? '' : ' indeterminate';
     const progressWidth = total > 0 ? `width:${percent}%` : '';
     const controls = confirmingCancel
@@ -57,22 +61,30 @@ function renderDownloads() {
     </article>`);
   });
 
-  completed.forEach(item => {
+  const recentRows = completed.map(item => {
     const id = String(item.id);
     const busy = busyDownloadActions.has(id);
-    rows.push(`<article class="download-item completed-download">
-      <div class="download-item-head"><span class="download-name" title="${escapeHtml(item.filename || 'download')}">${escapeHtml(item.filename || 'download')}</span><span class="download-status">Complete</span></div>
-      <div class="download-item-meta"><span>${formatBytes(item.downloadedBytes ?? item.contentLength)}</span></div>
-      <div class="download-actions">
-        <button class="download-action" data-action="open-file" data-id="${escapeHtml(id)}" ${busy ? 'disabled' : ''}>Open file</button>
-        <button class="download-action" data-action="open-folder" data-id="${escapeHtml(id)}" ${busy ? 'disabled' : ''}>Open folder</button>
+    return `<article class="history-item">
+      <div class="history-file">
+        <span class="history-file-icon" aria-hidden="true">✓</span>
+        <div class="history-file-copy"><span class="download-name" title="${escapeHtml(item.filename || 'download')}">${escapeHtml(item.filename || 'download')}</span><span class="history-file-meta">${formatBytes(item.downloadedBytes ?? item.contentLength)} · Complete</span></div>
       </div>
-    </article>`);
+      <div class="history-actions">
+        <button class="download-action" data-action="open-file" data-id="${escapeHtml(id)}" ${busy ? 'disabled' : ''}>Open</button>
+        <button class="download-action" data-action="open-folder" data-id="${escapeHtml(id)}" aria-label="Open folder for ${escapeHtml(item.filename || 'download')}" title="Open folder" ${busy ? 'disabled' : ''}>Folder</button>
+      </div>
+    </article>`;
   });
 
-  section.hidden = rows.length === 0;
-  title.textContent = active.length ? `Downloads · ${active.length} active` : 'Recent downloads';
-  list.innerHTML = rows.join('');
+  section.hidden = rows.length === 0 && recentRows.length === 0;
+  title.textContent = active.length ? `Downloads · ${active.length} active` : 'Downloads';
+  const recentSection = recentRows.length ? `<details class="recent-downloads" ${shouldOpenRecent ? 'open' : ''}>
+    <summary><span>Recent history</span></summary>
+    <div class="recent-list">${recentRows.join('')}</div>
+  </details>` : '';
+  list.innerHTML = `${rows.join('')}${recentSection}`;
+  const details = list.querySelector('.recent-downloads');
+  details?.addEventListener('toggle', () => { recentHistoryOpen = details.open; });
 }
 
 function showDownloadError(message) {
@@ -132,7 +144,9 @@ async function checkServerStatus() {
     });
     adapterUsage.textContent = usedAdapters.size
       ? [...usedAdapters.values()].join(' · ')
-      : (inFlight.length ? 'Connecting to adapters…' : 'No active download');
+      : (inFlight.some(download => download.waitingForAdapter)
+        ? 'Waiting for an enabled network adapter'
+        : (inFlight.length ? 'Connecting to adapters…' : 'No active download'));
 
     speedVal.textContent = formatSpeed(totalSpeed);
     activeJobs.textContent = activeJobsList.length.toString();
@@ -140,8 +154,8 @@ async function checkServerStatus() {
     // Query interfaces
     const ifacesRes = await fetch(`${SERVER_URL}/api/interfaces`);
     const ifacesData = await ifacesRes.json();
-    const onlineIfaces = (ifacesData.interfaces || []).filter(i => i.online);
-    bondedCount.textContent = onlineIfaces.length.toString();
+    const enabledIfaces = (ifacesData.interfaces || []).filter(i => i.online && i.enabled !== false);
+    bondedCount.textContent = enabledIfaces.length.toString();
   } catch (err) {
     statusPill.className = 'status-pill offline';
     statusText.textContent = 'APP OFFLINE';

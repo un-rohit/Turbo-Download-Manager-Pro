@@ -10,6 +10,7 @@ class DownloadManager {
     this.history = this.loadHistory();
     if (this.historyNeedsRepair) this.saveHistory();
     this.globalListeners = new Set();
+    this.disabledInterfaces = new Set();
   }
 
   loadHistory() {
@@ -19,21 +20,29 @@ class DownloadManager {
         if (!Array.isArray(saved)) return [];
         if (saved.length > 50) this.historyNeedsRepair = true;
         return saved.slice(0, 50).map((item) => {
-          if (item.status !== 'completed' || Number(item.downloadedBytes ?? item.contentLength) > 0) {
-            return item;
-          }
+          if (item.status !== 'completed') return item;
 
-          let fileSize = 0;
+          let fileStat = null;
           try {
             const filePath = item.outputPath && path.resolve(item.outputPath);
-            if (filePath && fs.existsSync(filePath)) fileSize = fs.statSync(filePath).size;
+            if (filePath && fs.existsSync(filePath)) fileStat = fs.statSync(filePath);
           } catch {}
 
-          this.historyNeedsRepair = true;
-          if (fileSize > 0) {
-            return { ...item, contentLength: fileSize, downloadedBytes: fileSize };
+          const savedBytes = Number(item.downloadedBytes ?? item.contentLength) || 0;
+          const updates = {};
+          if (!item.completedAt && fileStat?.isFile()) {
+            updates.completedAt = fileStat.mtime.toISOString();
           }
-          return { ...item, status: 'error', downloadedBytes: 0, error: 'No file data was saved' };
+          if (savedBytes <= 0 && fileStat?.isFile() && fileStat.size > 0) {
+            updates.contentLength = fileStat.size;
+            updates.downloadedBytes = fileStat.size;
+          } else if (savedBytes <= 0) {
+            this.historyNeedsRepair = true;
+            return { ...item, ...updates, status: 'error', downloadedBytes: 0, error: 'No file data was saved' };
+          }
+
+          if (Object.keys(updates).length) this.historyNeedsRepair = true;
+          return Object.keys(updates).length ? { ...item, ...updates } : item;
         });
       }
     } catch {}
@@ -94,6 +103,10 @@ class DownloadManager {
     return task;
   }
 
+  isInterfaceEnabled(address) {
+    return !this.disabledInterfaces.has(address);
+  }
+
   getDownload(id) {
     return this.downloads.get(id);
   }
@@ -148,6 +161,9 @@ class DownloadManager {
   }
 
   toggleGlobalInterface(address, enabled) {
+    if (enabled) this.disabledInterfaces.delete(address);
+    else this.disabledInterfaces.add(address);
+
     for (const d of this.downloads.values()) {
       if (enabled) {
         d.resumeInterface(address);

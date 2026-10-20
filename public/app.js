@@ -208,24 +208,17 @@ async function loadInterfaces(options = {}) {
     const previousAddresses = new Set(networkInterfaces.map(iface => iface.address));
     const nextInterfaces = data.interfaces || [];
 
-    if (!adapterScanInitialized) {
-      // Preserve the current startup behavior for adapters already connected when the app opens.
-      selectedInterfaces.clear();
-      nextInterfaces.forEach(iface => {
-        if (iface.online) selectedInterfaces.add(iface.address);
-      });
-      adapterScanInitialized = true;
-    } else {
-      const presentAddresses = new Set(nextInterfaces.map(iface => iface.address));
-      for (const address of selectedInterfaces) {
-        if (!presentAddresses.has(address)) selectedInterfaces.delete(address);
-      }
-    }
+    selectedInterfaces.clear();
+    nextInterfaces.forEach(iface => {
+      if (iface.online && iface.enabled !== false) selectedInterfaces.add(iface.address);
+    });
+    adapterScanInitialized = true;
 
     networkInterfaces = nextInterfaces;
 
     renderAdapters();
     updateHeaderHud();
+    updateGlobalSpeed();
 
     if (wasInitialized) {
       networkInterfaces.forEach(iface => {
@@ -323,13 +316,18 @@ window.toggleAdapter = async function(address) {
   }
 
   try {
-    await fetch('/api/interfaces/toggle', {
+    const res = await fetch('/api/interfaces/toggle', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ address, enabled: willEnable })
     });
+    if (!res.ok) throw new Error(`Server returned HTTP ${res.status}`);
   } catch (err) {
     console.error('Failed to toggle interface on backend:', err);
+    if (willEnable) selectedInterfaces.delete(address);
+    else selectedInterfaces.add(address);
+    renderAdapters();
+    updateHeaderHud();
   }
 };
 
@@ -372,6 +370,7 @@ function initSSE() {
     downloadHistory = data.history || [];
     renderActiveDownloads();
     renderHistory();
+    updateGlobalSpeed();
   });
 
   es.addEventListener('download_update', (e) => {
@@ -458,35 +457,36 @@ function initSSE() {
 
 function updateGlobalSpeed() {
   let totalSpeed = 0;
+  let defaultRouteSpeed = 0;
   const adapterSpeeds = {};
+  const hasCurrentSelection = networkInterfaces.some(iface => selectedInterfaces.has(iface.address));
+  const eligibleInterfaces = networkInterfaces.filter(iface =>
+    hasCurrentSelection ? selectedInterfaces.has(iface.address) : iface.online
+  );
+  const eligibleAddresses = new Set(eligibleInterfaces.map(iface => iface.address));
 
   for (const item of activeDownloads.values()) {
     if (item.status === 'downloading') {
       totalSpeed += item.currentSpeed || 0;
+      defaultRouteSpeed += item.defaultRoute?.currentSpeed || 0;
       if (item.interfaces) {
         item.interfaces.forEach(iface => {
-          adapterSpeeds[iface.address] = (adapterSpeeds[iface.address] || 0) + (iface.currentSpeed || 0);
+          // Ignore rates tied to old adapter addresses after DHCP or reconnect.
+          if (eligibleAddresses.has(iface.address)) {
+            adapterSpeeds[iface.address] = (adapterSpeeds[iface.address] || 0) + (iface.currentSpeed || 0);
+          }
         });
       }
     }
   }
 
-  // Windows may report aggregate download throughput while per-adapter byte
-  // counters remain zero (for example when traffic uses the default route).
-  // Attribute only the unreported portion across enabled adapters so the flow
-  // canvas still reflects active downloads without inflating the total.
-  const attributedSpeed = Object.values(adapterSpeeds).reduce((sum, speed) => sum + speed, 0);
-  const unreportedSpeed = Math.max(0, totalSpeed - attributedSpeed);
-  if (unreportedSpeed > 0) {
-    const eligibleInterfaces = networkInterfaces.filter(iface =>
-      selectedInterfaces.size === 0 ? iface.online : selectedInterfaces.has(iface.address)
-    );
-    if (eligibleInterfaces.length > 0) {
-      const share = unreportedSpeed / eligibleInterfaces.length;
-      eligibleInterfaces.forEach(iface => {
-        adapterSpeeds[iface.address] = (adapterSpeeds[iface.address] || 0) + share;
-      });
-    }
+  // Keep OS-routed bytes separate instead of inventing per-adapter rates.
+  const routeTrafficEl = document.getElementById('systemRouteTraffic');
+  if (routeTrafficEl) {
+    routeTrafficEl.hidden = defaultRouteSpeed <= 0;
+    routeTrafficEl.textContent = defaultRouteSpeed > 0
+      ? 'OS-selected route: ' + formatSpeed(defaultRouteSpeed) + ' (adapter not identified)'
+      : '';
   }
 
   const speedEl = document.getElementById('globalSpeed');
@@ -548,19 +548,21 @@ function renderActiveDownloads() {
     const percent = (item.progress * 100).toFixed(1);
     const filename = escapeHtml(item.filename || 'download.bin');
     const isPaused = item.status === 'paused';
+    const isWaitingForAdapter = item.waitingForAdapter === true;
+    const isNotTransferring = isPaused || isWaitingForAdapter;
     const showDetails = expandedDownloadDetails.has(item.id);
 
     // Segment block map
     const segmentsHtml = showDetails ? (item.segments || []).map(seg => {
       let stateClass = '';
       if (seg.done) stateClass = 'done';
-      else if (seg.active && !isPaused) stateClass = 'in-flight';
+      else if (seg.active && !isNotTransferring) stateClass = 'in-flight';
 
       return `<div class="segment-block ${stateClass}" title="Segment ${seg.id}: ${formatBytes(seg.downloaded)} / ${formatBytes(seg.total)}">${seg.id}</div>`;
     }).join('') : '';
 
     // Per-interface contribution pills with individual pause/resume controls
-    const contribsHtml = showDetails ? (item.interfaces || []).map((iface, idx) => {
+    const contribsHtml = (showDetails ? (item.interfaces || []).map((iface, idx) => {
       const isIfacePaused = !!iface.paused;
       const color = INTERFACE_COLORS[idx % INTERFACE_COLORS.length];
       return `
@@ -572,7 +574,9 @@ function renderActiveDownloads() {
           </button>
         </div>
       `;
-    }).join('') : '';
+    }).join('') : '') + (showDetails && (item.defaultRoute?.bytesDownloaded > 0 || item.defaultRoute?.currentSpeed > 0)
+      ? '<div class="contrib-pill contrib-pill-system-route"><span class="contrib-dot" aria-hidden="true"></span><span><strong>OS-selected route</strong>: ' + formatBytes(item.defaultRoute.bytesDownloaded) + ' (' + formatSpeed(item.defaultRoute.currentSpeed) + '). Adapter could not be identified.</span></div>'
+      : '');
 
     const connectionCount = (item.interfaces || []).length;
     const segmentCount = (item.segments || []).length;
@@ -586,14 +590,14 @@ function renderActiveDownloads() {
       : '';
 
     return `
-      <article class="task-card task-card-compact ${isPaused ? 'task-card-paused' : ''}">
+      <article class="task-card task-card-compact ${isNotTransferring ? 'task-card-paused' : ''}">
         <div class="task-compact-head">
           <div class="task-compact-file">
-            <span class="task-status-mark ${isPaused ? 'is-paused' : ''}" aria-hidden="true"></span>
+            <span class="task-status-mark ${isNotTransferring ? 'is-paused' : ''}" aria-hidden="true"></span>
             <div class="task-compact-copy">
               <div class="task-filename" title="${filename}">${filename}</div>
               <div class="task-sub-meta mono">
-                ${formatBytes(item.downloadedBytes)} / ${formatBytes(item.contentLength)} · ${percent}% · ${isPaused ? '<span class="task-paused-label">Paused</span>' : `ETA ${formatEta(item.etaSeconds)}`}
+                ${formatBytes(item.downloadedBytes)} / ${formatBytes(item.contentLength)} · ${percent}% · ${isPaused ? '<span class="task-paused-label">Paused</span>' : isWaitingForAdapter ? '<span class="task-paused-label">Waiting for network adapter</span>' : `ETA ${formatEta(item.etaSeconds)}`}
               </div>
             </div>
           </div>
@@ -617,11 +621,11 @@ function renderActiveDownloads() {
 
         <div class="task-compact-progress">
           <div class="task-progress-meta">
-            <span class="task-progress-status ${isPaused ? 'is-paused' : ''}">${isPaused ? 'Paused' : item.status}</span>
-            <span class="mono task-progress-speed">${isPaused ? '—' : formatSpeed(item.currentSpeed)}</span>
+            <span class="task-progress-status ${isNotTransferring ? 'is-paused' : ''}">${isPaused ? 'Paused' : isWaitingForAdapter ? 'Waiting for network adapter' : item.status}</span>
+            <span class="mono task-progress-speed">${isNotTransferring ? '—' : formatSpeed(item.currentSpeed)}</span>
           </div>
           <div class="progress-bar-bg">
-            <div class="progress-bar-fill" style="width: ${percent}%; ${isPaused ? 'background: #ffb800;' : ''}"></div>
+            <div class="progress-bar-fill" style="width: ${percent}%; ${isNotTransferring ? 'background: #ffb800;' : ''}"></div>
           </div>
           ${rangeWarning}
           ${actionError}
@@ -823,8 +827,13 @@ function getProbeWarnings(data) {
   return warnings;
 }
 
-function getSelectedDownloadInterfaces() {
-  return networkInterfaces.filter(iface => selectedInterfaces.has(iface.address));
+function getDownloadInterfaceOptions(enabledAddresses = selectedInterfaces) {
+  return {
+    interfaces: networkInterfaces,
+    pausedInterfaces: networkInterfaces
+      .filter(iface => !iface.online || !enabledAddresses.has(iface.address))
+      .map(iface => iface.address)
+  };
 }
 
 function acceptNewDownload(task) {
@@ -841,7 +850,7 @@ window.redownloadHistoryItem = async function(id) {
       url: item.url,
       filename: item.filename,
       outputDir: outputDirectoryFromPath(item.outputPath),
-      interfaces: getSelectedDownloadInterfaces(),
+      ...getDownloadInterfaceOptions(),
       connectionsPerInterface: currentSettings?.connectionsPerAdapter || 4
     });
     acceptNewDownload(task);
@@ -859,6 +868,22 @@ window.removeHistoryItem = async function(id) {
     renderHistory();
   } catch (err) {
     await appAlert(`Could not remove history item: ${err.message}`, { title: 'Could not remove item' });
+  }
+};
+
+window.openHistoryItem = async function(id) {
+  const item = downloadHistory.find(entry => String(entry.id) === String(id));
+  if (!item?.outputPath) return appAlert('The downloaded file is no longer available.', { title: 'File unavailable' });
+  const action = getHistoryOpenAction(item.filename || '');
+  if (action.kind === 'installer' && !await appConfirm(
+    `Open '${item.filename || 'this installer'}' with the default system app? Only continue if you trust this file.`,
+    { title: action.label === 'Install' ? 'Run installer' : 'Run downloaded file', confirmLabel: action.label === 'Install' ? 'Run installer' : 'Run file', danger: true }
+  )) return;
+  try {
+    await postDownloadAction(`/api/download-history/${encodeURIComponent(id)}/open-file`);
+  } catch (err) {
+    const verb = action.kind === 'media' ? 'play' : action.kind === 'installer' ? 'run' : 'open';
+    await appAlert(`Could not ${verb} this file: ${err.message}`, { title: `Could not ${action.label.toLowerCase()} file` });
   }
 };
 
@@ -901,7 +926,7 @@ window.restartDownload = async function(id) {
       url: item.url,
       filename: item.filename,
       outputDir: outputDirectoryFromPath(item.outputPath),
-      interfaces: getSelectedDownloadInterfaces(),
+      ...getDownloadInterfaceOptions(),
       connectionsPerInterface: currentSettings?.connectionsPerAdapter || 4
     });
     acceptNewDownload(task);
@@ -911,6 +936,15 @@ window.restartDownload = async function(id) {
 };
 
 // 5. Render History
+function getHistoryOpenAction(filename = '') {
+  if (/\.(mp4|m4v|mkv|mov|avi|webm|mpeg|mpg|wmv|flv|3gp|mp3|m4a|aac|wav|flac|ogg|opus|wma)$/i.test(filename)) {
+    return { label: 'Play', kind: 'media' };
+  }
+  if (/\.(msi|msix|appx|deb|rpm|dmg|pkg|appimage)$/i.test(filename)) return { label: 'Install', kind: 'installer' };
+  if (/\.(exe|com|scr)$/i.test(filename)) return { label: 'Run', kind: 'installer' };
+  return { label: 'Open', kind: 'file' };
+}
+
 function renderHistory() {
   closeDownloadMenus();
   const tbody = document.getElementById('historyList');
@@ -932,7 +966,7 @@ function renderHistory() {
     const itemId = String(item.id);
     const isSelected = selectedHistoryIds.has(itemId);
     const date = item.completedAt || item.updatedAt ? new Date(item.completedAt || item.updatedAt) : null;
-    const dateStr = date && Number.isFinite(date.getTime()) ? date.toLocaleTimeString() : '—';
+    const dateStr = date && Number.isFinite(date.getTime()) ? date.toLocaleString() : '—';
     const size = Number(item.status === 'error' ? (item.downloadedBytes || 0) : (item.downloadedBytes ?? item.contentLength ?? 0));
     const isCompleted = item.status === 'completed' && size > 0;
     const isFailed = item.status === 'error' || (item.status === 'completed' && size === 0);
@@ -946,6 +980,8 @@ function renderHistory() {
     ].filter(Boolean).join(' ');
     const errorTitle = historyDetails ? ` title="${escapeHtml(historyDetails)}"` : '';
     const sizeLabel = isFailed && size > 0 ? `Partial · ${formatBytes(size)}` : formatBytes(size);
+    const openAction = getHistoryOpenAction(item.filename || '');
+    const canOpenFile = isCompleted && item.outputPath;
 
     return `
       <tr class="${isFailed ? 'history-row-failed' : ''}">
@@ -965,6 +1001,7 @@ function renderHistory() {
         <td class="mono">${dateStr}</td>
         <td>
           <div class="action-menu-wrap history-action-wrap">
+            ${canOpenFile ? `<button type="button" class="btn btn-sm btn-glass" onclick="openHistoryItem('${escapeHtml(itemId)}')">${openAction.label}</button>` : ''}
             <button type="button" class="btn btn-sm btn-glass" onclick="toggleDownloadMenu(event, 'history-${item.id}')">More ▾</button>
             <div id="history-${item.id}" class="download-action-menu" hidden>
               <button type="button" onclick="redownloadHistoryItem('${item.id}')">Download again</button>
@@ -1817,7 +1854,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const checkedBoxes = Array.from(document.querySelectorAll('input[name="modalIface"]:checked'));
     const chosenAddresses = checkedBoxes.map(cb => cb.value);
 
-    const chosenInterfaces = networkInterfaces.filter(iface => chosenAddresses.includes(iface.address));
+    const chosenAddressSet = new Set(chosenAddresses);
     const submitButton = document.getElementById('btnSubmitDownload');
     const originalSubmitLabel = submitButton?.textContent;
     if (submitButton) {
@@ -1861,7 +1898,7 @@ document.addEventListener('DOMContentLoaded', () => {
           category,
           rememberPath,
           connectionsPerInterface: conns,
-          interfaces: chosenInterfaces
+          ...getDownloadInterfaceOptions(chosenAddressSet)
         })
       });
 
@@ -2140,9 +2177,10 @@ class QuantumEnergyFlowCanvas {
     }
 
     // Sources mapping
+    const hasCurrentSelection = ifacesToDraw.some(iface => selectedInterfaces.has(iface.address));
     const sources = ifacesToDraw.map((iface, index) => {
       const position = this.getAdapterPosition(iface.address, index, ifaceCount, bounds);
-      const isPaused = selectedInterfaces.size > 0 ? !selectedInterfaces.has(iface.address) : !iface.online;
+      const isPaused = hasCurrentSelection ? !selectedInterfaces.has(iface.address) : !iface.online;
       const speed = isPaused ? 0 : (this.isSurgeDemo ? 22 * 1024 * 1024 : (this.adapterSpeeds[iface.address] || 0));
       const now = performance.now();
       if (speed > 0) this.lastTraffic.set(iface.address, { at: now, speed });

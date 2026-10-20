@@ -28,7 +28,7 @@ function formatByteCount(value) {
   return `${size.toFixed(1)} ${unit}`;
 }
 
-function requestWithRedirects(urlStr, options = {}, redirectCount = 0) {
+function requestWithRedirects(urlStr, options = {}, redirectCount = 0, usedDefaultRoute = false) {
   return new Promise((resolve, reject) => {
     let parsed;
     try {
@@ -48,6 +48,8 @@ function requestWithRedirects(urlStr, options = {}, redirectCount = 0) {
       port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
       path: `${parsed.pathname}${parsed.search}`
     }, (res) => {
+      res.tdmLocalAddress = options.localAddress || null;
+      res.tdmUsedDefaultRoute = usedDefaultRoute;
       const location = res.headers.location;
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && location) {
         if (redirectCount >= 10) {
@@ -56,7 +58,7 @@ function requestWithRedirects(urlStr, options = {}, redirectCount = 0) {
         }
         const redirectUrl = new URL(location, parsed).toString();
         res.resume();
-        requestWithRedirects(redirectUrl, options, redirectCount + 1).then(resolve, reject);
+        requestWithRedirects(redirectUrl, options, redirectCount + 1, usedDefaultRoute).then(resolve, reject);
         return;
       }
       resolve({ response: res, finalUrl: parsed.toString() });
@@ -65,7 +67,14 @@ function requestWithRedirects(urlStr, options = {}, redirectCount = 0) {
     req.setTimeout(options.timeout || 30000, () => {
       req.destroy(new Error(`Request timed out after ${Math.round((options.timeout || 30000) / 1000)} seconds`));
     });
-    req.on('error', reject);
+    req.on('error', (err) => {
+      if (err.code === 'EADDRNOTAVAIL' && options.localAddress && !usedDefaultRoute) {
+        const { localAddress, family, ...defaultRouteOptions } = options;
+        requestWithRedirects(urlStr, defaultRouteOptions, redirectCount, true).then(resolve, reject);
+        return;
+      }
+      reject(err);
+    });
     req.end();
   });
 }
@@ -184,6 +193,8 @@ export class MultiInterfaceDownload {
     this.outputPath = path.join(this.outputDir, this.filename);
     this.connectionsPerInterface = options.connectionsPerInterface || 2;
     this.interfaces = options.interfaces || []; // Array of { name, address, label, type }
+    this.allowDefaultRoute = options.allowDefaultRoute ?? this.interfaces.length === 0;
+    this.unavailableInterfaces = new Set();
     this.totalConnections = Math.max(1, this.interfaces.length * this.connectionsPerInterface);
 
     this.status = 'idle'; // idle, downloading, paused, completed, error
@@ -197,7 +208,7 @@ export class MultiInterfaceDownload {
     this.endTime = null;
     this.error = null;
 
-    this.pausedInterfaces = new Set();
+    this.pausedInterfaces = new Set(options.pausedInterfaces || []);
     this.activeStreams = new Map(); // segId -> { stream, adapterAddress }
 
     // Per-interface telemetry: address -> { bytesDownloaded, currentSpeed, label, type, paused }
@@ -211,9 +222,11 @@ export class MultiInterfaceDownload {
         bytesDownloaded: 0,
         currentSpeed: 0,
         activeStreams: 0,
-        paused: false
+        paused: this.pausedInterfaces.has(iface.address)
       };
     });
+    // Keep OS-routed traffic separate when a bound adapter address is stale or unavailable.
+    this.defaultRouteStats = { bytesDownloaded: 0, currentSpeed: 0 };
 
     this.fd = null;
     this.abortController = null;
@@ -244,14 +257,22 @@ export class MultiInterfaceDownload {
       this.interfaceStats[address].activeStreams = 0;
     }
 
+    let pauseSingleConnection = false;
     // Abort active streams on this interface
     for (const [segId, entry] of this.activeStreams.entries()) {
       if (entry.adapterAddress === address) {
+        if (entry.isFallback) pauseSingleConnection = true;
         try {
           if (entry.stream) entry.stream.destroy();
         } catch {}
         this.activeStreams.delete(segId);
       }
+    }
+
+    // A single-connection transfer cannot move to another adapter mid-stream.
+    if (pauseSingleConnection) {
+      this.pause();
+      return;
     }
 
     // Free active segments belonging to this interface so others can pick them up
@@ -346,6 +367,9 @@ export class MultiInterfaceDownload {
       contentLength: this.contentLength,
       downloadedBytes: this.downloadedBytes,
       progress: this.contentLength > 0 ? Math.min(1, (this.downloadedBytes / this.contentLength)) : 0,
+      allowDefaultRoute: this.allowDefaultRoute,
+      waitingForAdapter: this.status === 'downloading' && !this.allowDefaultRoute &&
+        (this.interfaces.length === 0 || this.interfaces.every(iface => this.pausedInterfaces.has(iface.address))),
       currentSpeed: this.currentSpeed,
       etaSeconds: this.currentSpeed > 0 ? Math.max(0, Math.round((this.contentLength - this.downloadedBytes) / this.currentSpeed)) : 0,
       supportsRanges: this.supportsRanges,
@@ -358,6 +382,7 @@ export class MultiInterfaceDownload {
         ...i,
         paused: this.pausedInterfaces.has(i.address)
       })),
+      defaultRoute: { ...this.defaultRouteStats },
       segments: this.segments.map(s => ({
         id: s.id,
         interfaceAddress: s.interfaceAddress,
@@ -463,6 +488,7 @@ export class MultiInterfaceDownload {
     for (const addr in this.interfaceStats) {
       lastInterfaceBytes[addr] = this.interfaceStats[addr].bytesDownloaded;
     }
+    let lastDefaultRouteBytes = this.defaultRouteStats.bytesDownloaded;
     this.lastSampleBytes = this.downloadedBytes;
     this.lastSampleTime = Date.now();
 
@@ -479,6 +505,9 @@ export class MultiInterfaceDownload {
         this.interfaceStats[addr].currentSpeed = Math.max(0, Math.round(delta / deltaSec));
         lastInterfaceBytes[addr] = this.interfaceStats[addr].bytesDownloaded;
       }
+      const defaultRouteDelta = this.defaultRouteStats.bytesDownloaded - lastDefaultRouteBytes;
+      this.defaultRouteStats.currentSpeed = Math.max(0, Math.round(defaultRouteDelta / deltaSec));
+      lastDefaultRouteBytes = this.defaultRouteStats.bytesDownloaded;
 
       this.lastSampleBytes = this.downloadedBytes;
       this.lastSampleTime = now;
@@ -534,13 +563,22 @@ export class MultiInterfaceDownload {
     let workerFailure = null;
     const runWorker = async (adapterAddress) => {
       while (this.status === 'downloading' && !workerFailure) {
-        // If this adapter is paused by user, wait
-        if (this.pausedInterfaces.has(adapterAddress)) {
+        const hasUsableInterface = this.interfaces.some(iface =>
+          !this.pausedInterfaces.has(iface.address) && !this.unavailableInterfaces.has(iface.address)
+        ) || this.allowDefaultRoute;
+        if (!hasUsableInterface) {
           await new Promise(r => setTimeout(r, 400));
           continue;
         }
 
-        const seg = this.findOrStealWork(adapterAddress);
+        // If this adapter is paused by user, wait
+        if (this.pausedInterfaces.has(adapterAddress) && !this.unavailableInterfaces.has(adapterAddress)) {
+          await new Promise(r => setTimeout(r, 400));
+          continue;
+        }
+
+        const workerAddress = this.unavailableInterfaces.has(adapterAddress) ? null : adapterAddress;
+        const seg = this.findOrStealWork(workerAddress);
         if (!seg) {
           if (this.isAllDone()) break;
           await new Promise(r => setTimeout(r, 200));
@@ -548,7 +586,7 @@ export class MultiInterfaceDownload {
         }
 
         try {
-          await this.downloadSegment(seg, adapterAddress);
+          await this.downloadSegment(seg, workerAddress);
         } catch (err) {
           workerFailure = err;
         }
@@ -588,11 +626,19 @@ export class MultiInterfaceDownload {
     const routes = [];
     const addRoute = (address) => {
       const route = address || null;
-      if (!this.pausedInterfaces.has(route) && !routes.includes(route)) routes.push(route);
+      if (routes.includes(route)) return;
+      if (route === null ? this.allowDefaultRoute :
+        (!this.pausedInterfaces.has(route) && !this.unavailableInterfaces.has(route))) routes.push(route);
     };
     addRoute(adapterAddress);
     this.interfaces.forEach(iface => addRoute(iface.address));
-    addRoute(null); // Let Windows choose its current default route as a last resort.
+    if (this.allowDefaultRoute) {
+      addRoute(null); // Use the OS route when no adapter is available or a bound address has disappeared.
+    }
+    if (routes.length === 0) {
+      seg.active = false;
+      return;
+    }
     const maxAttempts = Math.min(6, Math.max(3, routes.length * 2));
     let lastError = null;
 
@@ -600,8 +646,8 @@ export class MultiInterfaceDownload {
     try {
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         if (this.status !== 'downloading') return;
-        const route = routes[attempt % routes.length];
-        if (route && this.pausedInterfaces.has(route)) continue;
+        let route = routes[attempt % routes.length];
+        if (route && (this.pausedInterfaces.has(route) || this.unavailableInterfaces.has(route))) continue;
 
         seg.interfaceAddress = route;
         if (route && this.interfaceStats[route]) this.interfaceStats[route].activeStreams++;
@@ -616,6 +662,16 @@ export class MultiInterfaceDownload {
             expectedTotal: this.contentLength,
             signal: this.abortController.signal
           });
+          if (stream.tdmUsedDefaultRoute && route) {
+            this.unavailableInterfaces.add(route);
+            this.allowDefaultRoute = true;
+            if (this.interfaceStats[route]) {
+              this.interfaceStats[route].activeStreams = Math.max(0, this.interfaceStats[route].activeStreams - 1);
+            }
+            route = null;
+            seg.interfaceAddress = null;
+            this.notify();
+          }
           this.activeStreams.set(seg.id, { stream, adapterAddress: route });
 
           await new Promise((resolve, reject) => {
@@ -649,6 +705,8 @@ export class MultiInterfaceDownload {
 
                 if (route && this.interfaceStats[route]) {
                   this.interfaceStats[route].bytesDownloaded += toWrite.length;
+                } else {
+                  this.defaultRouteStats.bytesDownloaded += toWrite.length;
                 }
 
                 if (seg.currentOffset > seg.end) {
@@ -721,6 +779,8 @@ export class MultiInterfaceDownload {
     this.segments = [];
     this.downloadedBytes = 0;
     this.currentSpeed = 0;
+    this.defaultRouteStats.bytesDownloaded = 0;
+    this.defaultRouteStats.currentSpeed = 0;
     this.interfaces.forEach(iface => {
       const stats = this.interfaceStats[iface.address];
       if (stats) {
@@ -736,11 +796,24 @@ export class MultiInterfaceDownload {
   }
 
   async startFallbackDownload() {
+    let route;
+    while (this.status === 'downloading' && route === undefined) {
+      const availableInterface = this.interfaces.find(iface =>
+        !this.pausedInterfaces.has(iface.address) && !this.unavailableInterfaces.has(iface.address)
+      );
+      if (availableInterface) route = availableInterface.address;
+      else if (this.allowDefaultRoute) route = null;
+      else await new Promise(resolve => setTimeout(resolve, 400));
+    }
+    if (this.status !== 'downloading') return;
+
     let resumeOffset = this.supportsRanges && this.contentLength > 0 ? this.downloadedBytes : 0;
 
     const resetFallbackProgress = () => {
       this.downloadedBytes = 0;
       this.currentSpeed = 0;
+      this.defaultRouteStats.bytesDownloaded = 0;
+      this.defaultRouteStats.currentSpeed = 0;
       for (const address in this.interfaceStats) {
         this.interfaceStats[address].bytesDownloaded = 0;
         this.interfaceStats[address].currentSpeed = 0;
@@ -780,9 +853,19 @@ export class MultiInterfaceDownload {
       requestWithRedirects(this.url, {
         method: 'GET',
         signal: this.abortController.signal,
-        headers
+        headers,
+        ...(route ? { localAddress: route, ...(!route.includes(':') ? { family: 4 } : {}) } : {})
       }).then(({ response: res, finalUrl }) => {
+        if (res.tdmUsedDefaultRoute && route) {
+          this.unavailableInterfaces.add(route);
+          this.allowDefaultRoute = true;
+          route = null;
+        }
         this.url = finalUrl;
+        if (this.status !== 'downloading' || (route && this.pausedInterfaces.has(route))) {
+          res.destroy();
+          return finish();
+        }
         if (resumeOffset > 0 && res.statusCode === 200) {
           // The server stopped honoring ranges; use this full response as a
           // clean restart instead of appending a duplicate copy to the file.
@@ -797,13 +880,18 @@ export class MultiInterfaceDownload {
             res.resume();
             return reject(new Error('The server did not return the requested resume range'));
           }
+          if (range[3] !== '*') this.contentLength = Number(range[3]);
         }
         if (res.statusCode < 200 || res.statusCode >= 300) {
           res.resume();
           return reject(new Error(`Server returned HTTP ${res.statusCode}`));
         }
+        this.activeStreams.set('fallback', { stream: res, adapterAddress: route, isFallback: true });
+        res.once('close', () => this.activeStreams.delete('fallback'));
         const responseLength = parseInt(res.headers['content-length'] || '0', 10);
-        if (this.contentLength === 0 && responseLength > 0) {
+        if (res.statusCode === 200 && responseLength > 0) {
+          // The full GET response is authoritative; a range probe may have
+          // reported a stale size for a changing or redirected resource.
           this.contentLength = responseLength;
         }
         res.on('data', (chunk) => {
@@ -815,6 +903,16 @@ export class MultiInterfaceDownload {
             fs.writeSync(this.fd, chunk, 0, chunk.length, resumeOffset + responseBytes);
             responseBytes += chunk.length;
             this.downloadedBytes = resumeOffset + responseBytes;
+            if (route && this.interfaceStats[route]) {
+              this.interfaceStats[route].bytesDownloaded += chunk.length;
+            } else {
+              this.defaultRouteStats.bytesDownloaded += chunk.length;
+            }
+            // Chunked responses have no declared total. Keep the displayed
+            // total at least as large as the bytes received until EOF confirms it.
+            if (this.contentLength > 0 && this.downloadedBytes > this.contentLength) {
+              this.contentLength = this.downloadedBytes;
+            }
           } catch (writeErr) {
             res.destroy();
             finish(new Error(`Could not write the download to disk: ${writeErr.message}`));

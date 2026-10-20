@@ -77,13 +77,23 @@ async function sendToTurboDownloader(url, filename) {
     const downloadTimeout = setTimeout(() => downloadController.abort(), 10000);
     let res;
     try {
+      const interfaceResponse = await fetch(`${SERVER_URL}/api/interfaces`, {
+        cache: 'no-store',
+        signal: downloadController.signal
+      });
+      const interfaceData = await readJsonResponse(interfaceResponse, 'Network adapter status');
+      if (!interfaceResponse.ok) throw new Error(interfaceData.error || `Server returned ${interfaceResponse.status}`);
+      const interfaces = interfaceData.interfaces || [];
+
       res = await fetch(`${SERVER_URL}/api/downloads`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url,
           filename: filename || undefined,
-          connectionsPerInterface: 2
+          connectionsPerInterface: 2,
+          interfaces,
+          pausedInterfaces: interfaces.filter(iface => !iface.online || iface.enabled === false).map(iface => iface.address)
         }),
         signal: downloadController.signal
       });
