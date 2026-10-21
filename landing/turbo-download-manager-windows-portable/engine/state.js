@@ -1,11 +1,35 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { MultiInterfaceDownload } from './downloader.js';
+
+function resolveHistoryFile() {
+  if (process.env.TURBO_DATA_DIR) {
+    return path.join(process.env.TURBO_DATA_DIR, 'downloads-history.json');
+  }
+  const candidates = [
+    path.join(process.cwd(), 'downloads-history.json'),
+    path.resolve(process.cwd(), '..', 'downloads-history.json')
+  ];
+
+  try {
+    const projectRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+    candidates.push(path.join(projectRoot, 'downloads-history.json'));
+    candidates.push(path.resolve(projectRoot, '..', 'downloads-history.json'));
+    candidates.push(path.resolve(projectRoot, '..', '..', 'downloads-history.json'));
+  } catch {}
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+
+  return candidates[0];
+}
 
 class DownloadManager {
   constructor() {
     this.downloads = new Map();
-    this.historyFile = path.join(process.cwd(), 'downloads-history.json');
+    this.historyFile = resolveHistoryFile();
     this.historyNeedsRepair = false;
     this.history = this.loadHistory();
     if (this.historyNeedsRepair) this.saveHistory();
@@ -116,7 +140,17 @@ class DownloadManager {
   }
 
   getHistory() {
-    return this.history;
+    return this.history.map(item => {
+      let fileExists = null;
+      if (item.status === 'completed' && item.outputPath) {
+        try {
+          fileExists = fs.existsSync(item.outputPath) && fs.statSync(item.outputPath).isFile();
+        } catch {
+          fileExists = false;
+        }
+      }
+      return { ...item, ...(fileExists !== null ? { fileExists } : {}) };
+    });
   }
 
   removeHistoryItem(id) {

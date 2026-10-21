@@ -7,7 +7,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="style.css?v=20261021-fixed3">
 </head>
 <body class="cyber-theme">
   <!-- Glowing Background Grid Accent -->
@@ -211,14 +211,22 @@
             </div>
           </div>
           <table class="history-table">
+            <colgroup>
+              <col class="col-select">
+              <col class="col-filename">
+              <col class="col-size">
+              <col class="col-status">
+              <col class="col-date">
+              <col class="col-actions">
+            </colgroup>
             <thead>
               <tr>
-                <th class="history-select-cell"><input id="historySelectAll" type="checkbox" aria-label="Select all downloads" onchange="toggleAllHistorySelection(this)"></th>
-                <th>File Name</th>
-                <th>Size</th>
-                <th>Status</th>
-                <th>Date</th>
-                <th>Action</th>
+                <th class="history-select-cell history-col-select"><input id="historySelectAll" type="checkbox" aria-label="Select all downloads" onchange="toggleAllHistorySelection(this)"></th>
+                <th class="history-col-filename">File Name</th>
+                <th class="history-col-size">Size</th>
+                <th class="history-col-status">Status</th>
+                <th class="history-col-date">Date</th>
+                <th class="history-col-actions">Action</th>
               </tr>
             </thead>
             <tbody id="historyList">

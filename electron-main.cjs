@@ -24,6 +24,9 @@ if (!gotTheLock) {
 
   async function startServer() {
     try {
+      try {
+        process.chdir(__dirname);
+      } catch {}
       await import('./server.js');
       console.log('[Turbo Download Manager] Embedded backend server started successfully');
     } catch (err) {
@@ -37,8 +40,8 @@ if (!gotTheLock) {
     mainWindow = new BrowserWindow({
       width: 1300,
       height: 860,
-      minWidth: 960,
-      minHeight: 640,
+      minWidth: 420,
+      minHeight: 480,
       title: 'Turbo Download Manager — Multi-Interface Accelerator',
       icon: iconPath,
       backgroundColor: '#060911',

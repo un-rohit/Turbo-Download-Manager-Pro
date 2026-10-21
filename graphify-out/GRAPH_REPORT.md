@@ -1,17 +1,17 @@
 # Graph Report - REA  (2026-10-21)
 
 ## Corpus Check
-- 46 files · ~60,498 words
+- 46 files · ~60,877 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 18 file(s) not represented in the graph (top: .css 9, (none) 3, .zip 2)
 
 ## Summary
-- 556 nodes · 860 edges · 37 communities (23 shown, 14 thin omitted)
+- 561 nodes · 870 edges · 36 communities (23 shown, 13 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 11 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `30e5e1e3`
+- Built from commit: `22554817`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -25,7 +25,6 @@
 - package.json
 - MultiInterfaceDownload
 - initHeroVisualizer
-- extension/generate-icons.js
 - Turbo Download Manager — Chrome / Edge Integration Extension
 - background.js
 - extension/popup.js
@@ -80,11 +79,11 @@
 ## Import Cycles
 - None detected.
 
-## Communities (37 total, 14 thin omitted)
+## Communities (36 total, 13 thin omitted)
 
 ### Community 0 - "server.js"
-Cohesion: 0.08
-Nodes (31): appDir, projectRoot, server, categorizeInterface(), getNetworkInterfaces(), isVirtualMachineInterface(), testInterfaceConnectivity(), describeSpeedTestError() (+23 more)
+Cohesion: 0.09
+Nodes (27): categorizeInterface(), getNetworkInterfaces(), isVirtualMachineInterface(), testInterfaceConnectivity(), describeSpeedTestError(), runAdapterSpeedTest(), { spawn }, { spawn } (+19 more)
 
 ### Community 1 - "public/app.js"
 Cohesion: 0.07
@@ -102,6 +101,10 @@ Nodes (45): acceptNewDownload(), activeDownloads, appAlert(), appConfirm(), appD
 Cohesion: 0.13
 Nodes (14): 🧩 Browser Extension Setup (15 Seconds), 📥 Downloads, Extension Features:, Installation Steps:, ⚡ Key Highlights, 🌐 Landing Page, 📄 License, Method 1: Instant Run (No Installation) (+6 more)
 
+### Community 5 - "downloadManager"
+Cohesion: 0.05
+Nodes (23): appDir, projectRoot, server, downloadManager, resolveHistoryFile(), crc32(), crcTable, createPNG() (+15 more)
+
 ### Community 6 - "package.json"
 Cohesion: 0.10
 Nodes (19): author, description, devDependencies, electron, @electron/packager, electron, @electron/packager, keywords (+11 more)
@@ -113,10 +116,6 @@ Nodes (6): formatByteCount(), MultiInterfaceDownload, probeUrl(), requestChunk()
 ### Community 8 - "initHeroVisualizer"
 Cohesion: 0.29
 Nodes (4): initHeroVisualizer(), initSpeedCalculator(), formatTime(), update()
-
-### Community 9 - "extension/generate-icons.js"
-Cohesion: 0.14
-Nodes (15): crc32(), crcTable, createPNG(), iconsDir, makeChunk(), crc32(), crcTable, createPNG() (+7 more)
 
 ### Community 10 - "Turbo Download Manager — Chrome / Edge Integration Extension"
 Cohesion: 0.50
@@ -148,7 +147,7 @@ Nodes (19): author, description, devDependencies, electron, @electron/packager, 
 
 ### Community 25 - "electron-main.cjs"
 Cohesion: 0.12
-Nodes (9): { app, BrowserWindow, Tray, Menu, nativeImage, shell }, fs, gotTheLock, path, startServer(), { app, BrowserWindow, Tray, Menu, nativeImage, shell }, gotTheLock, path (+1 more)
+Nodes (10): { app, BrowserWindow, Tray, Menu, nativeImage, shell }, fs, gotTheLock, path, startServer(), { app, BrowserWindow, Tray, Menu, nativeImage, shell }, fs, gotTheLock (+2 more)
 
 ### Community 27 - "Turbo Download Manager Pro ⚡"
 Cohesion: 0.13
@@ -171,13 +170,13 @@ Cohesion: 0.31
 Nodes (7): busyDownloadActions, checkServerStatus(), downloadState, escapeHtml(), formatBytes(), formatSpeed(), renderDownloads()
 
 ### Community 36 - "turbo-download-manager-windows-portable/server.js"
-Cohesion: 0.10
-Nodes (27): categorizeInterface(), getNetworkInterfaces(), isVirtualMachineInterface(), testInterfaceConnectivity(), describeSpeedTestError(), runAdapterSpeedTest(), { spawn }, broadcastSSE() (+19 more)
+Cohesion: 0.11
+Nodes (25): categorizeInterface(), getNetworkInterfaces(), isVirtualMachineInterface(), testInterfaceConnectivity(), describeSpeedTestError(), runAdapterSpeedTest(), broadcastSSE(), __dirname (+17 more)
 
 ## Knowledge Gaps
 - **4 isolated node(s):** `@electron/packager`, `electron`, `@electron/packager`, `electron`
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 243 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **14 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 245 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **13 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
@@ -187,12 +186,12 @@ _Questions this graph is uniquely positioned to answer:_
 - **What connects `@electron/packager`, `electron`, `@electron/packager` to the rest of the system?**
   _4 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `server.js` be split into smaller, more focused modules?**
-  _Cohesion score 0.08156028368794327 - nodes in this community are weakly interconnected._
-- **Why does `downloadManager` connect `downloadManager` to `server.js`, `turbo-download-manager-windows-portable/server.js`?**
+  _Cohesion score 0.09243697478991597 - nodes in this community are weakly interconnected._
+- **Why does `downloadManager` connect `downloadManager` to `turbo-download-manager-windows-portable/server.js`?**
   _High betweenness centrality (0.020) - this node is a cross-community bridge._
 - **Should `public/app.js` be split into smaller, more focused modules?**
   _Cohesion score 0.06901960784313725 - nodes in this community are weakly interconnected._
-- **Why does `MultiInterfaceDownload` connect `MultiInterfaceDownload` to `server.js`, `downloadManager`?**
+- **Why does `MultiInterfaceDownload` connect `MultiInterfaceDownload` to `downloadManager`?**
   _High betweenness centrality (0.019) - this node is a cross-community bridge._
 - **Should `manifest.json` be split into smaller, more focused modules?**
   _Cohesion score 0.1 - nodes in this community are weakly interconnected._

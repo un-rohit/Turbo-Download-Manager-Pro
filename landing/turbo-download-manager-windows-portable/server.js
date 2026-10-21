@@ -14,7 +14,26 @@ const __dirname = path.dirname(__filename);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const LANDING_DIR = path.join(__dirname, 'landing');
 const PORT = process.env.PORT || 4820;
-const SETTINGS_FILE = path.join(process.cwd(), 'settings.json');
+function resolveSettingsFile() {
+  if (process.env.TURBO_DATA_DIR) {
+    return path.join(process.env.TURBO_DATA_DIR, 'settings.json');
+  }
+  const candidates = [
+    path.join(process.cwd(), 'settings.json'),
+    path.resolve(process.cwd(), '..', 'settings.json'),
+    path.join(__dirname, 'settings.json'),
+    path.resolve(__dirname, '..', 'settings.json'),
+    path.resolve(__dirname, '..', '..', 'settings.json')
+  ];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(candidate)) return candidate;
+  }
+
+  return candidates[0];
+}
+
+const SETTINGS_FILE = resolveSettingsFile();
 
 const MIME_TYPES = {
   '.html': 'text/html; charset=utf-8',
@@ -484,27 +503,49 @@ export async function handleRequest(req, res) {
     const item = downloadManager.getHistoryItem(historyId);
     if (!item) return sendJson(res, 404, { error: 'Download history item not found' });
 
-    if (action === 'open-file' || action === 'open-folder') {
+    if (action === 'open-file') {
       try {
         const targetPath = item.outputPath && path.resolve(item.outputPath);
         if (!targetPath || !fs.existsSync(targetPath) || !fs.statSync(targetPath).isFile()) {
-          return sendJson(res, 404, { error: 'The downloaded file is no longer available' });
+          return sendJson(res, 404, { error: 'The downloaded file was not found on disk at its saved location' });
         }
 
-        const command = process.platform === 'win32' ? 'explorer.exe' : process.platform === 'darwin' ? 'open' : 'xdg-open';
-        const target = action === 'open-file' || process.platform === 'win32'
-          ? targetPath
-          : path.dirname(targetPath);
-        const args = action === 'open-folder' && process.platform === 'win32' ? [`/select,${target}`] : [target];
-        const child = spawn(command, args, { detached: true, stdio: 'ignore', windowsHide: true });
-        await new Promise((resolve, reject) => {
-          child.once('error', reject);
-          child.once('spawn', resolve);
-        });
-        child.unref();
+        if (process.platform === 'win32') {
+          // Open with Windows registered default application for this file type (e.g. VLC, Windows Media Player)
+          exec(`start "" "${targetPath.replace(/"/g, '""')}"`, { windowsHide: true });
+        } else if (process.platform === 'darwin') {
+          spawn('open', [targetPath], { detached: true, stdio: 'ignore' }).unref();
+        } else {
+          spawn('xdg-open', [targetPath], { detached: true, stdio: 'ignore' }).unref();
+        }
         return sendJson(res, 200, { ok: true });
       } catch (err) {
-        return sendJson(res, 500, { error: `Could not open the downloaded ${action === 'open-file' ? 'file' : 'folder'}: ${err.message}` });
+        return sendJson(res, 500, { error: `Could not open file in default application: ${err.message}` });
+      }
+    }
+
+    if (action === 'open-folder') {
+      try {
+        const targetPath = item.outputPath && path.resolve(item.outputPath);
+        const folderPath = targetPath && fs.existsSync(targetPath) ? targetPath : (targetPath ? path.dirname(targetPath) : null);
+        if (!folderPath || !fs.existsSync(path.dirname(folderPath))) {
+          return sendJson(res, 404, { error: 'The download folder is not available' });
+        }
+
+        if (process.platform === 'win32') {
+          if (targetPath && fs.existsSync(targetPath) && fs.statSync(targetPath).isFile()) {
+            spawn('explorer.exe', [`/select,${targetPath}`], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+          } else {
+            spawn('explorer.exe', [path.dirname(targetPath || folderPath)], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+          }
+        } else if (process.platform === 'darwin') {
+          spawn('open', targetPath && fs.existsSync(targetPath) ? ['-R', targetPath] : [path.dirname(targetPath)], { detached: true, stdio: 'ignore' }).unref();
+        } else {
+          spawn('xdg-open', [path.dirname(targetPath || folderPath)], { detached: true, stdio: 'ignore' }).unref();
+        }
+        return sendJson(res, 200, { ok: true });
+      } catch (err) {
+        return sendJson(res, 500, { error: `Could not open folder: ${err.message}` });
       }
     }
 
@@ -700,7 +741,10 @@ export async function handleRequest(req, res) {
         res.writeHead(500);
         return res.end('Error loading asset');
       }
-      res.writeHead(200, { 'Content-Type': contentType });
+      res.writeHead(200, {
+        'Content-Type': contentType,
+        'Cache-Control': 'no-cache, no-store, must-revalidate'
+      });
       res.end(content);
     });
   });

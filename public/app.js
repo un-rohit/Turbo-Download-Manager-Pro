@@ -873,7 +873,7 @@ function acceptNewDownload(task) {
 }
 
 window.redownloadHistoryItem = async function(id) {
-  const item = downloadHistory.find(entry => entry.id === id);
+  const item = downloadHistory.find(entry => String(entry.id) === String(id));
   if (!item?.url) return appAlert('The original download link is not available.', { title: 'Cannot download again' });
   try {
     const task = await postDownloadAction('/api/downloads', {
@@ -893,8 +893,8 @@ window.redownloadHistoryItem = async function(id) {
 window.removeHistoryItem = async function(id) {
   if (!await appConfirm('Remove this item from download history? The downloaded file will stay on your computer.', { title: 'Remove from history', confirmLabel: 'Remove' })) return;
   try {
-    await postDownloadAction(`/api/download-history/${id}/remove`);
-    downloadHistory = downloadHistory.filter(item => item.id !== id);
+    await postDownloadAction(`/api/download-history/${encodeURIComponent(id)}/remove`);
+    downloadHistory = downloadHistory.filter(item => String(item.id) !== String(id));
     renderHistory();
   } catch (err) {
     await appAlert(`Could not remove history item: ${err.message}`, { title: 'Could not remove item' });
@@ -912,17 +912,28 @@ window.openHistoryItem = async function(id) {
   try {
     await postDownloadAction(`/api/download-history/${encodeURIComponent(id)}/open-file`);
   } catch (err) {
+    const isMissing = /not found|no longer available/i.test(err.message || '');
+    if (isMissing && item?.url) {
+      const redownload = await appConfirm(
+        `'${item.filename || 'This file'}' was not found at its saved location on disk.\n\nWould you like to re-download it now?`,
+        { title: 'File Not Found', confirmLabel: '🔄 Download Again', cancelLabel: 'Cancel' }
+      );
+      if (redownload) {
+        return redownloadHistoryItem(id);
+      }
+      return;
+    }
     const verb = action.kind === 'media' ? 'play' : action.kind === 'installer' ? 'run' : 'open';
     await appAlert(`Could not ${verb} this file: ${err.message}`, { title: `Could not ${action.label.toLowerCase()} file` });
   }
 };
 
 window.deleteHistoryFile = async function(id) {
-  const item = downloadHistory.find(entry => entry.id === id);
+  const item = downloadHistory.find(entry => String(entry.id) === String(id));
   if (!await appConfirm(`Permanently delete '${item?.filename || 'this file'}' from your computer and remove it from history?`, { title: 'Delete downloaded file', confirmLabel: 'Delete file', danger: true })) return;
   try {
-    await postDownloadAction(`/api/download-history/${id}/delete-file`);
-    downloadHistory = downloadHistory.filter(entry => entry.id !== id);
+    await postDownloadAction(`/api/download-history/${encodeURIComponent(id)}/delete-file`);
+    downloadHistory = downloadHistory.filter(entry => String(entry.id) !== String(id));
     renderHistory();
   } catch (err) {
     await appAlert(`Could not delete downloaded file: ${err.message}`, { title: 'Could not delete file' });
@@ -983,7 +994,7 @@ window.onHistorySearchInput = function(query) {
 };
 
 window.clearCompletedHistory = async function() {
-  const completedItems = downloadHistory.filter(h => h.status === 'completed' || (h.downloadedBytes > 0 && h.status !== 'downloading'));
+  const completedItems = downloadHistory.filter(h => h.status === 'completed' && Number(h.downloadedBytes || h.contentLength || 0) > 0);
   if (!completedItems.length) return appAlert('No completed downloads to clear.', { title: 'History Clean' });
   if (!await appConfirm(`Remove ${completedItems.length} completed item(s) from history? The files will stay on your computer.`, { title: 'Clear Completed', confirmLabel: 'Clear' })) return;
   for (const item of completedItems) {
@@ -1050,16 +1061,21 @@ function renderHistory() {
   tbody.innerHTML = itemsToRender.map(item => {
     const itemId = String(item.id);
     const isSelected = selectedHistoryIds.has(itemId);
-    const date = item.completedAt || item.updatedAt ? new Date(item.completedAt || item.updatedAt) : null;
-    const dateStr = date && Number.isFinite(date.getTime()) ? date.toLocaleString() : '—';
+    const rawDate = item.completedAt || item.updatedAt || item.createdAt;
+    const date = rawDate ? new Date(rawDate) : null;
+    const dateStr = date && Number.isFinite(date.getTime())
+      ? date.toLocaleDateString(undefined, { month: 'numeric', day: 'numeric', year: 'numeric' }) + ', ' + date.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })
+      : '—';
     const size = Number(item.status === 'error' ? (item.downloadedBytes || 0) : (item.downloadedBytes ?? item.contentLength ?? 0));
     const isCompleted = item.status === 'completed' && size > 0;
     const isFailed = item.status === 'error' || (item.status === 'completed' && size === 0);
-    const statusText = isCompleted ? 'COMPLETED' : (isFailed ? 'FAILED' : item.status.toUpperCase());
+    const isFileMissing = isCompleted && item.fileExists === false;
+    const statusText = isFileMissing ? 'FILE MISSING' : (isCompleted ? 'COMPLETED' : (isFailed ? 'FAILED' : item.status.toUpperCase()));
     const filename = escapeHtml(item.filename || 'download.bin');
     const rawError = item.error || (size === 0 ? '0 bytes received — connection closed before data arrived' : (item.supportsRanges === false && size > 0 ? 'This host cannot resume partial downloads.' : ''));
     const errorSummary = describeDownloadError(rawError);
     const historyDetails = [
+      isFileMissing ? 'File was moved or deleted from disk.' : '',
       item.error,
       item.supportsRanges === false ? 'This host does not support byte-range requests. The download used one connection and cannot resume from its partial data.' : ''
     ].filter(Boolean).join(' ');
@@ -1069,48 +1085,61 @@ function renderHistory() {
     const canOpenFile = isCompleted && item.outputPath;
 
     return `
-      <tr class="${isFailed ? 'history-row-failed' : ''}">
-        <td class="history-select-cell">
+      <tr class="${isFailed || isFileMissing ? 'history-row-failed' : ''}">
+        <td class="history-select-cell history-col-select">
           <input class="history-row-checkbox" type="checkbox" aria-label="Select ${filename}" value="${escapeHtml(itemId)}" ${isSelected ? 'checked' : ''} onchange="toggleHistorySelection(this)">
         </td>
-        <td class="history-filename-cell">
-          <span class="history-file-name" title="${filename}">${filename}</span>
-          ${isFailed ? `<div class="history-error-detail" title="${escapeHtml(historyDetails || errorSummary)}"><span>${escapeHtml(errorSummary)}</span><button type="button" class="history-retry-link" onclick="redownloadHistoryItem('${itemId}')">Retry</button></div>` : ''}
+        <td class="history-filename-cell history-col-filename">
+          <div class="history-filename-wrap">
+            <span class="history-file-name" title="${filename}">${filename}</span>
+            <div class="history-responsive-submeta">
+              <span class="submeta-pill submeta-size mono"${isFailed && size > 0 ? ` title="${formatBytes(size)} downloaded"` : ''}>${sizeLabel}</span>
+              <span class="submeta-pill submeta-status" style="color: ${isFileMissing ? '#ffb800' : (isCompleted ? '#00f5a0' : '#ff3366')}">${statusText}</span>
+              <span class="submeta-pill submeta-date mono">${dateStr}</span>
+            </div>
+            ${isFailed ? `<div class="history-error-detail" title="${escapeHtml(historyDetails || errorSummary)}"><span>${escapeHtml(errorSummary)}</span><button type="button" class="history-retry-link" onclick="redownloadHistoryItem('${escapeHtml(itemId)}')">Retry</button></div>` : ''}
+            ${isFileMissing ? `<div class="history-error-detail" title="File not found on disk"><span>File missing from disk</span><button type="button" class="history-retry-link" onclick="redownloadHistoryItem('${escapeHtml(itemId)}')">Re-download</button></div>` : ''}
+          </div>
         </td>
-        <td class="mono"${isFailed && size > 0 ? ` title="${formatBytes(size)} downloaded before the failure${Number(item.contentLength) > size ? ` out of ${formatBytes(Number(item.contentLength))}` : ''}"` : ''}>${sizeLabel}</td>
-        <td>
-          <span class="count-pill"${errorTitle} style="color: ${isCompleted ? '#00f5a0' : '#ff3366'}">
+        <td class="history-col-size mono"${isFailed && size > 0 ? ` title="${formatBytes(size)} downloaded before the failure${Number(item.contentLength) > size ? ` out of ${formatBytes(Number(item.contentLength))}` : ''}"` : ''}>${sizeLabel}</td>
+        <td class="history-col-status">
+          <span class="count-pill"${errorTitle} style="color: ${isFileMissing ? '#ffb800' : (isCompleted ? '#00f5a0' : '#ff3366')}">
             ${statusText}
           </span>
         </td>
-        <td class="mono">${dateStr}</td>
-        <td>
+        <td class="history-col-date mono">${dateStr}</td>
+        <td class="history-col-actions">
           <div class="history-actions-row">
-            ${canOpenFile ? `
-              <button type="button" class="btn btn-xs btn-primary-glass" onclick="openHistoryItem('${escapeHtml(itemId)}')" title="${openAction.label} this file">
-                ${openAction.icon} ${openAction.label}
+            ${canOpenFile && !isFileMissing ? `
+              <button type="button" class="btn btn-xs btn-primary-glass btn-history-primary" onclick="openHistoryItem('${escapeHtml(itemId)}')" title="${openAction.label} this file in default application">
+                <span class="btn-icon">${openAction.icon}</span> <span class="btn-label">${openAction.label}</span>
+              </button>
+            ` : ''}
+            ${isFileMissing ? `
+              <button type="button" class="btn btn-xs btn-retry btn-history-primary" onclick="redownloadHistoryItem('${escapeHtml(itemId)}')" title="File missing from disk. Click to re-download.">
+                <span class="btn-icon">🔄</span> <span class="btn-label">Re-download</span>
               </button>
             ` : ''}
             ${isFailed ? `
-              <button type="button" class="btn btn-xs btn-retry" onclick="redownloadHistoryItem('${escapeHtml(itemId)}')" title="Resume / Re-download file">
-                🔄 Retry
+              <button type="button" class="btn btn-xs btn-retry btn-history-primary" onclick="redownloadHistoryItem('${escapeHtml(itemId)}')" title="Resume / Re-download file">
+                <span class="btn-icon">🔄</span> <span class="btn-label">Retry</span>
               </button>
             ` : ''}
-            <button type="button" class="btn btn-xs btn-glass" onclick="openHistoryItemFolder('${escapeHtml(itemId)}')" title="Show in Windows Explorer">
-              📁 Folder
+            <button type="button" class="btn btn-xs btn-glass btn-history-folder" onclick="openHistoryItemFolder('${escapeHtml(itemId)}')" title="Show in Windows Explorer">
+              <span class="btn-icon">📁</span> <span class="btn-label">Folder</span>
             </button>
-            <button type="button" class="btn btn-xs btn-glass" onclick="copyDownloadUrl('${escapeHtml(itemId)}', 'history')" title="Copy original download link">
-              🔗 Copy
+            <button type="button" class="btn btn-xs btn-glass btn-history-copy" onclick="copyDownloadUrl('${escapeHtml(itemId)}', 'history')" title="Copy original download link">
+              <span class="btn-icon">🔗</span> <span class="btn-label">Copy</span>
             </button>
-            <button type="button" class="btn btn-xs btn-glass" onclick="toggleDownloadMenu(event, 'history-${item.id}')" title="More options">
+            <button type="button" class="btn btn-xs btn-glass btn-history-more" onclick="toggleDownloadMenu(event, 'history-${escapeHtml(itemId)}')" title="More options">
               ⋯
             </button>
-            <div id="history-${item.id}" class="download-action-menu" hidden>
-              <button type="button" onclick="redownloadHistoryItem('${item.id}')">🔄 Download again</button>
-              <button type="button" onclick="openHistoryItemFolder('${item.id}')">📁 Show in folder</button>
-              <button type="button" onclick="copyDownloadUrl('${item.id}', 'history')">🔗 Copy download link</button>
-              <button type="button" onclick="removeHistoryItem('${item.id}')">🗑 Remove from history</button>
-              <button type="button" class="danger-action" onclick="deleteHistoryFile('${item.id}')">❌ Delete file from disk</button>
+            <div id="history-${escapeHtml(itemId)}" class="download-action-menu" hidden>
+              <button type="button" onclick="redownloadHistoryItem('${escapeHtml(itemId)}')">🔄 Download again</button>
+              <button type="button" onclick="openHistoryItemFolder('${escapeHtml(itemId)}')">📁 Show in folder</button>
+              <button type="button" onclick="copyDownloadUrl('${escapeHtml(itemId)}', 'history')">🔗 Copy download link</button>
+              <button type="button" onclick="removeHistoryItem('${escapeHtml(itemId)}')">🗑 Remove from history</button>
+              <button type="button" class="danger-action" onclick="deleteHistoryFile('${escapeHtml(itemId)}')">❌ Delete file from disk</button>
             </div>
           </div>
         </td>

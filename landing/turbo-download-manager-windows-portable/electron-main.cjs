@@ -1,5 +1,6 @@
 const { app, BrowserWindow, Tray, Menu, nativeImage, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
 
 // Single instance lock to prevent duplicate processes and EADDRINUSE crashes
 const gotTheLock = app.requestSingleInstanceLock();
@@ -23,6 +24,9 @@ if (!gotTheLock) {
 
   async function startServer() {
     try {
+      try {
+        process.chdir(__dirname);
+      } catch {}
       await import('./server.js');
       console.log('[Turbo Download Manager] Embedded backend server started successfully');
     } catch (err) {
@@ -36,8 +40,8 @@ if (!gotTheLock) {
     mainWindow = new BrowserWindow({
       width: 1300,
       height: 860,
-      minWidth: 960,
-      minHeight: 640,
+      minWidth: 420,
+      minHeight: 480,
       title: 'Turbo Download Manager — Multi-Interface Accelerator',
       icon: iconPath,
       backgroundColor: '#060911',
@@ -80,7 +84,9 @@ if (!gotTheLock) {
 
   function createTray() {
     try {
-      const iconPath = path.join(__dirname, 'extension', 'icons', 'icon16.png');
+      const icoPath = path.join(__dirname, 'app.ico');
+      const pngPath = path.join(__dirname, 'extension', 'icons', 'icon16.png');
+      const iconPath = fs.existsSync(icoPath) ? icoPath : pngPath;
       const trayIcon = nativeImage.createFromPath(iconPath);
       tray = new Tray(trayIcon);
 

@@ -471,6 +471,10 @@ export class MultiInterfaceDownload {
         this.error = null;
         this.endTime = Date.now();
         this.currentSpeed = 0;
+        if (this.fd !== null) {
+          try { fs.fsyncSync(this.fd); } catch {}
+        }
+        this.cleanup();
         this.notify();
       } else if (this.downloadedBytes === 0 && this.status === 'downloading') {
         throw new Error('Download failed: 0 bytes received from server. Link may be expired, redirected, or require browser authorization.');
@@ -478,6 +482,7 @@ export class MultiInterfaceDownload {
     } catch (err) {
       if (this.status === 'paused' || this.status === 'cancelled' || this.abortController?.signal?.aborted) return;
       this.status = 'error';
+      this.cleanup();
       const isInterruptedStream = /aborted|closed|ended early|socket|timeout|reset/i.test(err.message || '');
       if (this.supportsRanges === false && this.downloadedBytes > 0 && isInterruptedStream) {
         const total = this.contentLength > 0 ? ` of ${formatByteCount(this.contentLength)}` : '';

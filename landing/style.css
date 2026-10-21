@@ -36,6 +36,27 @@
   box-sizing: border-box;
   margin: 0;
   padding: 0;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 242, 254, 0.25) rgba(8, 14, 26, 0.6);
+}
+
+::-webkit-scrollbar {
+  width: 7px;
+  height: 7px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(6, 10, 20, 0.6);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(0, 242, 254, 0.25);
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 242, 254, 0.55);
 }
 
 html {
@@ -1160,17 +1181,137 @@ body.landing-body {
   line-height: 1.5;
 }
 
-/* Responsive */
-@media (max-width: 900px) {
+/* =========================================================
+   Responsive Design for Landing Page
+   ========================================================= */
+
+@media (max-width: 1040px) {
   .nav-links {
-    display: none;
+    gap: 16px;
+  }
+  .nav-links a {
+    font-size: 0.82rem;
+  }
+  .hero-headline {
+    font-size: 2.8rem;
   }
   .calc-wrapper {
     grid-template-columns: 1fr;
     padding: 24px;
   }
+}
+
+@media (max-width: 860px) {
+  .nav-links {
+    display: none;
+  }
+  .nav-actions {
+    gap: 8px;
+  }
+  .nav-actions .btn {
+    padding: 8px 12px;
+    font-size: 0.78rem;
+  }
+  .hero-section {
+    padding: 60px 16px 40px;
+  }
+  .hero-headline {
+    font-size: 2.2rem;
+  }
+  .hero-subhead {
+    font-size: 1rem;
+    margin-bottom: 28px;
+  }
+  .hero-cta-group {
+    flex-direction: column;
+    align-items: stretch;
+    max-width: 440px;
+    margin: 0 auto 36px;
+    gap: 12px;
+  }
+  .btn-hero-primary,
+  .btn-hero-secondary,
+  .btn-hero-tertiary {
+    width: 100%;
+    padding: 14px 20px;
+  }
+  .preview-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+  .preview-speed-hud {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .preview-controls-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+  .preview-toggles {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .preview-controls-bar .btn {
+    width: 100%;
+    justify-content: center;
+  }
   .footer-content {
     flex-direction: column;
+    gap: 28px;
+    text-align: center;
+    align-items: center;
+  }
+  .footer-links-group {
+    justify-content: center;
+    flex-wrap: wrap;
+    gap: 20px;
+  }
+}
+
+@media (max-width: 580px) {
+  .nav-container {
+    padding: 0 14px;
+  }
+  .logo-title {
+    font-size: 0.92rem;
+  }
+  .badge-pro {
+    font-size: 0.58rem;
+    padding: 2px 5px;
+  }
+  .nav-actions a:nth-child(2) {
+    /* Hide GitHub button on tiny phones to keep header clean and compact */
+    display: none;
+  }
+  .hero-headline {
+    font-size: 1.75rem;
+    letter-spacing: -0.5px;
+  }
+  .hero-badge {
+    font-size: 0.68rem;
+    padding: 4px 12px;
+  }
+  .calc-wrapper {
+    padding: 16px;
+  }
+  .calc-result-box {
+    padding: 20px 14px;
+  }
+  .result-number {
+    font-size: 2.2rem;
+  }
+  .downloads-cards-grid {
+    grid-template-columns: 1fr;
+  }
+  .download-card {
+    padding: 20px 16px;
+  }
+  .feature-grid,
+  .how-it-works-grid,
+  .ext-guide-grid {
+    grid-template-columns: 1fr;
   }
 }
 
