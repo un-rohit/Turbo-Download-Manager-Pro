@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { MultiInterfaceDownload } from './downloader.js';
 
@@ -148,13 +149,36 @@ class DownloadManager {
         } catch {
           fileExists = false;
         }
+
+        // If not found at recorded outputPath, auto-check standard categories and Downloads folder
+        if (!fileExists && item.filename) {
+          const searchDirs = [
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager', 'Video'),
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager', 'General'),
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager', 'Programs'),
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager', 'Compressed'),
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager', 'Documents'),
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager'),
+            path.join(os.homedir(), 'Downloads')
+          ];
+          for (const dir of searchDirs) {
+            const candidate = path.join(dir, item.filename);
+            try {
+              if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+                item.outputPath = candidate;
+                fileExists = true;
+                break;
+              }
+            } catch {}
+          }
+        }
       }
       return { ...item, ...(fileExists !== null ? { fileExists } : {}) };
     });
   }
 
   removeHistoryItem(id) {
-    const index = this.history.findIndex(item => item.id === id);
+    const index = this.history.findIndex(item => String(item.id) === String(id));
     if (index < 0) return false;
     this.history.splice(index, 1);
     this.saveHistory();
@@ -162,7 +186,7 @@ class DownloadManager {
   }
 
   getHistoryItem(id) {
-    return this.history.find(item => item.id === id) || null;
+    return this.history.find(item => String(item.id) === String(id)) || null;
   }
 
   pause(id) {

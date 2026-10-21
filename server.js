@@ -14,6 +14,14 @@ const __dirname = path.dirname(__filename);
 const PUBLIC_DIR = path.join(__dirname, 'public');
 const LANDING_DIR = path.join(__dirname, 'landing');
 const PORT = process.env.PORT || 4820;
+
+let electronShell = null;
+if (process.versions?.electron) {
+  try {
+    const electron = await import('electron');
+    electronShell = electron.shell || electron.default?.shell || null;
+  } catch {}
+}
 function resolveSettingsFile() {
   if (process.env.TURBO_DATA_DIR) {
     return path.join(process.env.TURBO_DATA_DIR, 'settings.json');
@@ -505,18 +513,58 @@ export async function handleRequest(req, res) {
 
     if (action === 'open-file') {
       try {
-        const targetPath = item.outputPath && path.resolve(item.outputPath);
+        let targetPath = item.outputPath && path.resolve(item.outputPath);
         if (!targetPath || !fs.existsSync(targetPath) || !fs.statSync(targetPath).isFile()) {
-          return sendJson(res, 404, { error: 'The downloaded file was not found on disk at its saved location' });
+          // Check smart candidate fallback locations (e.g. if category subfolder or settings folder changed)
+          const searchDirs = [
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager', 'Video'),
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager', 'General'),
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager', 'Programs'),
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager', 'Compressed'),
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager', 'Documents'),
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager'),
+            path.join(os.homedir(), 'Downloads')
+          ];
+          let foundPath = null;
+          if (item.filename) {
+            for (const dir of searchDirs) {
+              const candidate = path.join(dir, item.filename);
+              try {
+                if (fs.existsSync(candidate) && fs.statSync(candidate).isFile()) {
+                  foundPath = candidate;
+                  break;
+                }
+              } catch {}
+            }
+          }
+          if (foundPath) {
+            targetPath = foundPath;
+            item.outputPath = foundPath;
+            try { downloadManager.saveHistory(); } catch {}
+          } else {
+            return sendJson(res, 404, { error: 'The downloaded file was not found on disk at its saved location' });
+          }
         }
 
-        if (process.platform === 'win32') {
-          // Open with Windows registered default application for this file type (e.g. VLC, Windows Media Player)
-          exec(`start "" "${targetPath.replace(/"/g, '""')}"`, { windowsHide: true });
-        } else if (process.platform === 'darwin') {
-          spawn('open', [targetPath], { detached: true, stdio: 'ignore' }).unref();
-        } else {
-          spawn('xdg-open', [targetPath], { detached: true, stdio: 'ignore' }).unref();
+        // Open with Windows/OS registered default application for this file type
+        let openedWithElectron = false;
+        if (electronShell && typeof electronShell.openPath === 'function') {
+          const errMsg = await electronShell.openPath(targetPath);
+          if (!errMsg) {
+            openedWithElectron = true;
+          } else {
+            console.warn('[Turbo Download Manager] electron shell.openPath notice:', errMsg);
+          }
+        }
+
+        if (!openedWithElectron) {
+          if (process.platform === 'win32') {
+            spawn('cmd.exe', ['/c', 'start', '', targetPath], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
+          } else if (process.platform === 'darwin') {
+            spawn('open', [targetPath], { detached: true, stdio: 'ignore' }).unref();
+          } else {
+            spawn('xdg-open', [targetPath], { detached: true, stdio: 'ignore' }).unref();
+          }
         }
         return sendJson(res, 200, { ok: true });
       } catch (err) {
@@ -526,13 +574,39 @@ export async function handleRequest(req, res) {
 
     if (action === 'open-folder') {
       try {
-        const targetPath = item.outputPath && path.resolve(item.outputPath);
+        let targetPath = item.outputPath && path.resolve(item.outputPath);
+        if (!targetPath || !fs.existsSync(targetPath)) {
+          const searchDirs = [
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager', 'Video'),
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager', 'General'),
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager', 'Programs'),
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager', 'Compressed'),
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager', 'Documents'),
+            path.join(os.homedir(), 'Downloads', 'TurboDownloadManager'),
+            path.join(os.homedir(), 'Downloads')
+          ];
+          if (item.filename) {
+            for (const dir of searchDirs) {
+              const candidate = path.join(dir, item.filename);
+              try {
+                if (fs.existsSync(candidate)) {
+                  targetPath = candidate;
+                  item.outputPath = candidate;
+                  try { downloadManager.saveHistory(); } catch {}
+                  break;
+                }
+              } catch {}
+            }
+          }
+        }
         const folderPath = targetPath && fs.existsSync(targetPath) ? targetPath : (targetPath ? path.dirname(targetPath) : null);
         if (!folderPath || !fs.existsSync(path.dirname(folderPath))) {
           return sendJson(res, 404, { error: 'The download folder is not available' });
         }
 
-        if (process.platform === 'win32') {
+        if (electronShell && typeof electronShell.showItemInFolder === 'function' && targetPath && fs.existsSync(targetPath) && fs.statSync(targetPath).isFile()) {
+          electronShell.showItemInFolder(targetPath);
+        } else if (process.platform === 'win32') {
           if (targetPath && fs.existsSync(targetPath) && fs.statSync(targetPath).isFile()) {
             spawn('explorer.exe', [`/select,${targetPath}`], { detached: true, stdio: 'ignore', windowsHide: true }).unref();
           } else {
@@ -621,6 +695,15 @@ export async function handleRequest(req, res) {
 
       // Normalize path for Windows
       const targetPath = path.resolve(rawPath);
+
+      if (electronShell && typeof electronShell.openPath === 'function') {
+        const folderToOpen = fs.existsSync(targetPath) && fs.statSync(targetPath).isDirectory() ? targetPath : path.dirname(targetPath);
+        if (!fs.existsSync(folderToOpen)) {
+          fs.mkdirSync(folderToOpen, { recursive: true });
+        }
+        await electronShell.openPath(folderToOpen);
+        return sendJson(res, 200, { ok: true, target: folderToOpen });
+      }
 
       let args = [];
       if (fs.existsSync(targetPath)) {
