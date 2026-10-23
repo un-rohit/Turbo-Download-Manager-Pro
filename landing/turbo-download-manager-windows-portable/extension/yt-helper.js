@@ -122,6 +122,20 @@
 
     // Collect format metadata (itags, real sizes in bytes, resolutions)
     const itagMeta = {};
+    for (const f of formats) {
+      if (f.itag) {
+        const rawBytes = f.contentLength ? parseInt(f.contentLength, 10) :
+          (f.bitrate && duration > 0 ? Math.round((f.bitrate * duration) / 8) : 0);
+        itagMeta[String(f.itag)] = {
+          itag: f.itag,
+          qualityLabel: f.qualityLabel || (f.height ? `${f.height}p` : ''),
+          contentLength: rawBytes,
+          size: rawBytes > 0 ? formatBytes(rawBytes) : '',
+          mimeType: f.mimeType || '',
+          fps: f.fps || 0
+        };
+      }
+    }
     for (const f of adaptive) {
       if (f.itag) {
         const rawBytes = f.contentLength ? parseInt(f.contentLength, 10) :

@@ -496,20 +496,26 @@ function registerMediaStream(tabId, rawUrl, headers = []) {
   let cleanUrl = rawUrl;
   let itag = null;
   let ytStreamId = null;
+  let aitagsStr = null;
   if (isYouTubeStream) {
     try {
       const parsed = new URL(rawUrl);
       itag = parsed.searchParams.get('itag');
       ytStreamId = parsed.searchParams.get('id');
+      aitagsStr = parsed.searchParams.get('aitags');
       parsed.searchParams.delete('range');
       parsed.searchParams.delete('rn');
       parsed.searchParams.delete('rbuf');
       parsed.searchParams.delete('sq');
+      parsed.searchParams.delete('sabr');
+      parsed.searchParams.delete('rqh');
+      parsed.searchParams.delete('alr');
+      parsed.searchParams.delete('ump');
       cleanUrl = parsed.toString();
     } catch {}
 
-    // Exclude SABR control streams, RPC coordination requests, and URLs missing a valid media itag
-    if (!itag || rawUrl.includes('sabr=1') || contentType.includes('yt-ump')) {
+    // Require valid itag parameter
+    if (!itag) {
       return;
     }
   }
@@ -552,6 +558,61 @@ function registerMediaStream(tabId, rawUrl, headers = []) {
     streams.push(streamInfo);
   }
 
+  // When a valid YouTube stream is intercepted, synthesize all available video and audio qualities for this video
+  if (isYouTubeStream && itag && cleanUrl) {
+    let candidateItags = [];
+    if (aitagsStr) {
+      candidateItags = aitagsStr.split(',').filter(Boolean);
+    }
+    if (candidateItags.length === 0) {
+      candidateItags = ['313', '401', '308', '271', '137', '248', '136', '247', '135', '244', '134', '243', '140', '251'];
+    } else {
+      if (!candidateItags.includes('140')) candidateItags.push('140');
+      if (!candidateItags.includes('251')) candidateItags.push('251');
+    }
+
+    const baseHdrs = mediaHeadersCache.get(cleanUrl);
+
+    for (const cItag of candidateItags) {
+      if (cItag === itag) continue;
+      const cInfo = YOUTUBE_ITAG_MAP[cItag];
+      if (!cInfo) continue;
+
+      const variantUrl = cleanUrl.replace(/([?&])itag=\d+/, `$1itag=${cItag}`);
+      if (baseHdrs) {
+        mediaHeadersCache.set(variantUrl, baseHdrs);
+      }
+
+      const cAudio = cInfo.type === 'audio' || cInfo.format === 'M4A';
+      const cQuality = cInfo.quality;
+      const cFormat = cInfo.format;
+
+      const existingVarIdx = streams.findIndex(s => s.itag === cItag);
+      const varStreamInfo = {
+        url: variantUrl,
+        contentType: cAudio ? 'audio/mp4' : (cFormat === 'WebM' ? 'video/webm' : 'video/mp4'),
+        sizeBytes: 0,
+        size: '',
+        quality: cQuality,
+        label: `${cQuality} (${cFormat})`,
+        format: cFormat,
+        type: cAudio ? 'audio' : 'video',
+        isHD: cInfo.isHD,
+        itag: cItag,
+        ytStreamId,
+        timestamp: Date.now()
+      };
+
+      if (existingVarIdx >= 0) {
+        if (!streams[existingVarIdx].sizeBytes && varStreamInfo.sizeBytes) {
+          streams[existingVarIdx] = { ...streams[existingVarIdx], ...varStreamInfo };
+        }
+      } else {
+        streams.push(varStreamInfo);
+      }
+    }
+  }
+
   if (streams.length > 50) streams = streams.slice(-50);
   tabMediaStreams.set(tabId, streams);
 
@@ -582,6 +643,10 @@ if (chrome.webRequest) {
             parsed.searchParams.delete('rn');
             parsed.searchParams.delete('rbuf');
             parsed.searchParams.delete('sq');
+            parsed.searchParams.delete('sabr');
+            parsed.searchParams.delete('rqh');
+            parsed.searchParams.delete('alr');
+            parsed.searchParams.delete('ump');
             mediaHeadersCache.set(parsed.toString(), hdrs);
           } catch {}
         }

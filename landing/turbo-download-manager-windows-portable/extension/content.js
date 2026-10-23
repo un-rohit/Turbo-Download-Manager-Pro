@@ -370,6 +370,15 @@
       ytMediaData = e.detail;
       currentVideoId = e.detail.videoId || curV;
 
+      // Update sizes on any existing genericStreams if itagMeta has them
+      if (ytMediaData.itagMeta) {
+        for (const s of genericStreams) {
+          if (s.itag && ytMediaData.itagMeta[String(s.itag)]?.size && !s.size) {
+            s.size = ytMediaData.itagMeta[String(s.itag)].size;
+          }
+        }
+      }
+
       if (activeGrabber) {
         const titleEl = activeGrabber.querySelector('#turboIdmTitle');
         if (titleEl && ytMediaData.title) {
@@ -522,7 +531,38 @@
       }
     }
 
-    // 3. Current active video element direct source (for direct mp4 sites)
+    // 3. YouTube Multi-Quality Synthesis from active playback base URL + itagMeta
+    const ytSample = genericStreams.find(s => s.url && s.url.includes('googlevideo.com/videoplayback'));
+    if (ytSample && ytMediaData?.itagMeta) {
+      for (const [metaItag, meta] of Object.entries(ytMediaData.itagMeta)) {
+        const itagInfo = YOUTUBE_ITAG_MAP[metaItag];
+        if (!itagInfo) continue;
+        const isAudio = itagInfo.type === 'audio' || itagInfo.format === 'M4A';
+        const qualityName = itagInfo.quality || (isAudio ? 'Audio' : 'Video');
+        const formatName = itagInfo.format || (isAudio ? 'M4A' : 'MP4');
+        const label = itagInfo.label || `${qualityName} (${formatName})`;
+        if (seenLabels.has(label)) continue;
+
+        const variantUrl = ytSample.url.replace(/([?&])itag=\d+/, `$1itag=${metaItag}`);
+        if (seenUrls.has(variantUrl)) continue;
+
+        results.push({
+          url: variantUrl,
+          quality: qualityName,
+          badge: itagInfo.badge,
+          label,
+          format: formatName,
+          type: isAudio ? 'audio' : 'video',
+          isHD: itagInfo.isHD,
+          size: meta.size || '',
+          itag: metaItag
+        });
+        seenUrls.add(variantUrl);
+        seenLabels.add(label);
+      }
+    }
+
+    // 4. Current active video element direct source (for direct mp4 sites)
     if (currentTargetVideo && !window.location.hostname.includes('youtube.com')) {
       const src = currentTargetVideo.currentSrc || currentTargetVideo.src;
       if (src && !src.startsWith('blob:') && !src.startsWith('data:') && !seenUrls.has(src)) {
