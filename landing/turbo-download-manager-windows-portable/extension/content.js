@@ -532,8 +532,18 @@
     }
 
     // 3. YouTube Multi-Quality Synthesis from active playback base URL + itagMeta
+    let sampleUrl = null;
     const ytSample = genericStreams.find(s => s.url && s.url.includes('googlevideo.com/videoplayback'));
-    if (ytSample && ytMediaData?.itagMeta) {
+    if (ytSample && ytSample.url) {
+      sampleUrl = ytSample.url;
+    } else {
+      try {
+        const gvEntry = performance.getEntriesByType('resource').find(e => e.name && e.name.includes('googlevideo.com/videoplayback'));
+        if (gvEntry) sampleUrl = gvEntry.name;
+      } catch {}
+    }
+
+    if (sampleUrl && ytMediaData?.itagMeta) {
       for (const [metaItag, meta] of Object.entries(ytMediaData.itagMeta)) {
         const itagInfo = YOUTUBE_ITAG_MAP[metaItag];
         if (!itagInfo) continue;
@@ -543,7 +553,18 @@
         const label = itagInfo.label || `${qualityName} (${formatName})`;
         if (seenLabels.has(label)) continue;
 
-        const variantUrl = ytSample.url.replace(/([?&])itag=\d+/, `$1itag=${metaItag}`);
+        let variantUrl = sampleUrl;
+        try {
+          const u = new URL(sampleUrl);
+          u.searchParams.set('itag', metaItag);
+          variantUrl = u.toString();
+        } catch {
+          variantUrl = sampleUrl.replace(/([?&])itag=\d+/, `$1itag=${metaItag}`);
+          if (!variantUrl.includes('itag=')) {
+            variantUrl += (variantUrl.includes('?') ? '&' : '?') + `itag=${metaItag}`;
+          }
+        }
+
         if (seenUrls.has(variantUrl)) continue;
 
         results.push({
@@ -753,6 +774,9 @@
     ensureGrabber();
     isDropdownOpen = true;
     activeGrabber.classList.add('is-open');
+
+    // Request latest player formats from page context
+    window.dispatchEvent(new CustomEvent('TURBO_REQUEST_YT_FORMATS'));
 
     // Query latest streams from background
     chrome.runtime.sendMessage({ action: 'getTabMedia' }, (res) => {

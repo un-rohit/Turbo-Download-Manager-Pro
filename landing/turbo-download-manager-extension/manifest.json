@@ -8,7 +8,11 @@
     "contextMenus",
     "storage",
     "activeTab",
-    "webRequest"
+    "tabs",
+    "scripting",
+    "webRequest",
+    "webRequestExtraHeaders",
+    "cookies"
   ],
   "host_permissions": [
     "<all_urls>",

@@ -101,7 +101,10 @@
       }
     }
     if (message.action === 'turbo:media-detected') {
-      if (message.stream && message.stream.url) {
+      if (!mediaGrabberEnabled) return;
+      if (Array.isArray(message.streams)) {
+        message.streams.forEach(addGenericMediaStream);
+      } else if (message.stream && message.stream.url) {
         addGenericMediaStream(message.stream);
       }
     }
@@ -110,18 +113,99 @@
   // -------------------------------------------------------------
   // 2. IDM-Style Video Grabber & Quality Dropdown
   // -------------------------------------------------------------
+  let mediaGrabberEnabled = true;
   let activeGrabber = null;
   let currentTargetVideo = null;
   let hideTimer = null;
   let isMouseOverGrabber = false;
   let isDropdownOpen = false;
 
-  // Stream Registries
-  let ytMediaData = null; // { title, videoId, duration, formats }
-  const genericStreams = []; // Array of { url, quality, label, format, size, type }
+  // Sync media grabber toggle state from extension storage
+  chrome.storage.local.get(['mediaGrabberEnabled'], (res) => {
+    if (res.mediaGrabberEnabled !== undefined) {
+      mediaGrabberEnabled = res.mediaGrabberEnabled;
+      if (!mediaGrabberEnabled && activeGrabber) {
+        activeGrabber.classList.remove('is-visible');
+        closeDropdown();
+      }
+    }
+  });
 
-  function cleanPageTitle() {
-    return document.title
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes.mediaGrabberEnabled !== undefined) {
+      mediaGrabberEnabled = changes.mediaGrabberEnabled.newValue !== false;
+      if (!mediaGrabberEnabled && activeGrabber) {
+        activeGrabber.classList.remove('is-visible');
+        closeDropdown();
+      }
+    }
+  });
+
+  // Comprehensive YouTube itag map for 4K / 2K / 1080p / 720p / 480p / 360p / Audio
+  const YOUTUBE_ITAG_MAP = {
+    // 4K (2160p) & 8K
+    '402': { quality: '4320p 8K', label: '4320p 8K Ultra HD', badge: '8K', format: 'MP4', isHD: true },
+    '272': { quality: '4320p 8K', label: '4320p 8K Ultra HD', badge: '8K', format: 'WebM', isHD: true },
+    '315': { quality: '2160p 4K 60fps', label: '2160p 4K 60fps Ultra HD', badge: '4K', format: 'WebM', isHD: true },
+    '313': { quality: '2160p 4K', label: '2160p 4K Ultra HD', badge: '4K', format: 'WebM', isHD: true },
+    '401': { quality: '2160p 4K', label: '2160p 4K Ultra HD', badge: '4K', format: 'MP4', isHD: true },
+    '337': { quality: '2160p 4K 60fps HDR', label: '2160p 4K 60fps HDR Ultra HD', badge: '4K', format: 'WebM', isHD: true },
+    '701': { quality: '2160p 4K 60fps HDR', label: '2160p 4K 60fps HDR Ultra HD', badge: '4K', format: 'MP4', isHD: true },
+    '138': { quality: '2160p 4K', label: '2160p 4K Ultra HD', badge: '4K', format: 'MP4', isHD: true },
+
+    // 1440p (2K)
+    '308': { quality: '1440p 2K 60fps', label: '1440p 2K 60fps Quad HD', badge: '2K', format: 'WebM', isHD: true },
+    '271': { quality: '1440p 2K', label: '1440p 2K Quad HD', badge: '2K', format: 'WebM', isHD: true },
+    '400': { quality: '1440p 2K', label: '1440p 2K Quad HD', badge: '2K', format: 'MP4', isHD: true },
+    '336': { quality: '1440p 2K 60fps HDR', label: '1440p 2K 60fps HDR', badge: '2K', format: 'WebM', isHD: true },
+    '700': { quality: '1440p 2K 60fps HDR', label: '1440p 2K 60fps HDR', badge: '2K', format: 'MP4', isHD: true },
+
+    // 1080p Full HD
+    '299': { quality: '1080p Full HD 60fps', label: '1080p Full HD 60fps', badge: '1080P', format: 'MP4', isHD: true },
+    '303': { quality: '1080p Full HD 60fps', label: '1080p Full HD 60fps', badge: '1080P', format: 'WebM', isHD: true },
+    '137': { quality: '1080p Full HD', label: '1080p Full HD', badge: '1080P', format: 'MP4', isHD: true },
+    '248': { quality: '1080p Full HD', label: '1080p Full HD', badge: '1080P', format: 'WebM', isHD: true },
+    '399': { quality: '1080p Full HD', label: '1080p Full HD', badge: '1080P', format: 'MP4', isHD: true },
+    '335': { quality: '1080p Full HD HDR', label: '1080p Full HD HDR', badge: '1080P', format: 'WebM', isHD: true },
+    '699': { quality: '1080p Full HD HDR', label: '1080p Full HD HDR', badge: '1080P', format: 'MP4', isHD: true },
+    '37':  { quality: '1080p Full HD', label: '1080p Full HD (Video + Audio)', badge: '1080P', format: 'MP4', isHD: true, isMuxed: true },
+
+    // 720p HD
+    '298': { quality: '720p HD 60fps', label: '720p HD 60fps', badge: '720P', format: 'MP4', isHD: true },
+    '302': { quality: '720p HD 60fps', label: '720p HD 60fps', badge: '720P', format: 'WebM', isHD: true },
+    '136': { quality: '720p HD', label: '720p HD', badge: '720P', format: 'MP4', isHD: true },
+    '247': { quality: '720p HD', label: '720p HD', badge: '720P', format: 'WebM', isHD: true },
+    '398': { quality: '720p HD', label: '720p HD', badge: '720P', format: 'MP4', isHD: true },
+    '334': { quality: '720p HD HDR', label: '720p HD HDR', badge: '720P', format: 'WebM', isHD: true },
+    '698': { quality: '720p HD HDR', label: '720p HD HDR', badge: '720P', format: 'MP4', isHD: true },
+    '22':  { quality: '720p HD', label: '720p HD (Video + Audio)', badge: '720P', format: 'MP4', isHD: true, isMuxed: true },
+
+    // 480p SD
+    '135': { quality: '480p SD', label: '480p SD', badge: '480P', format: 'MP4', isHD: false },
+    '244': { quality: '480p SD', label: '480p SD', badge: '480P', format: 'WebM', isHD: false },
+    '397': { quality: '480p SD', label: '480p SD', badge: '480P', format: 'MP4', isHD: false },
+
+    // 360p SD
+    '18':  { quality: '360p', label: '360p (Video + Audio)', badge: '360P', format: 'MP4', isHD: false, isMuxed: true },
+    '134': { quality: '360p', label: '360p SD', badge: '360P', format: 'MP4', isHD: false },
+    '243': { quality: '360p', label: '360p SD', badge: '360P', format: 'WebM', isHD: false },
+    '396': { quality: '360p', label: '360p SD', badge: '360P', format: 'MP4', isHD: false },
+
+    // Audio Streams
+    '140': { quality: 'Audio Only', label: 'Audio M4A (128 kbps)', badge: 'AUDIO', format: 'M4A', type: 'audio', isHD: false },
+    '141': { quality: 'Audio Only', label: 'Audio M4A (256 kbps)', badge: 'AUDIO', format: 'M4A', type: 'audio', isHD: false },
+    '251': { quality: 'Audio Only', label: 'Audio WebM (160 kbps Opus)', badge: 'AUDIO', format: 'WebM', type: 'audio', isHD: false },
+    '250': { quality: 'Audio Only', label: 'Audio WebM (70 kbps Opus)', badge: 'AUDIO', format: 'WebM', type: 'audio', isHD: false },
+    '249': { quality: 'Audio Only', label: 'Audio WebM (50 kbps Opus)', badge: 'AUDIO', format: 'WebM', type: 'audio', isHD: false }
+  };
+
+  // Stream Registries
+  let ytMediaData = null; // { title, videoId, duration, formats, itagMeta }
+  let currentVideoId = '';
+  const genericStreams = []; // Array of { url, quality, label, format, size, type, itag, badge }
+
+  function cleanTitle(title) {
+    return String(title || 'Video')
       .replace(/ - YouTube$/, '')
       .replace(/[\\/:*?"<>|]/g, '_')
       .replace(/\s+/g, ' ')
@@ -129,39 +213,145 @@
       .slice(0, 100);
   }
 
+  function cleanPageTitle() {
+    return cleanTitle(document.title);
+  }
+
+  function getActiveVideoTitle() {
+    // 1. YouTube metadata in DOM
+    try {
+      const ytH1 = document.querySelector('h1.ytd-watch-metadata yt-formatted-string, #title h1 yt-formatted-string');
+      if (ytH1 && ytH1.textContent && ytH1.textContent.trim()) {
+        return cleanTitle(ytH1.textContent.trim());
+      }
+    } catch {}
+
+    // 2. ytMediaData if matching current video
+    try {
+      const curV = new URLSearchParams(window.location.search).get('v');
+      if (ytMediaData && ytMediaData.title && (!curV || ytMediaData.videoId === curV)) {
+        return ytMediaData.title;
+      }
+    } catch {}
+
+    // 3. Fallback to page title
+    return cleanPageTitle();
+  }
+
+  function clearStreamsForNewVideo(newId, newTitle) {
+    genericStreams.length = 0;
+    ytMediaData = null;
+    currentVideoId = newId;
+
+    if (activeGrabber) {
+      const titleEl = activeGrabber.querySelector('#turboIdmTitle');
+      if (titleEl) {
+        const t = newTitle || getActiveVideoTitle();
+        titleEl.textContent = t;
+        titleEl.title = t;
+      }
+      const listEl = activeGrabber.querySelector('#turboIdmList');
+      if (listEl) {
+        listEl.innerHTML = `
+          <div class="turbo-idm-empty">
+            <p>Scanning video stream qualities...<br>Play the video to capture high-definition stream.</p>
+          </div>
+        `;
+      }
+    }
+
+    // Tell background script to wipe old streams for this tab
+    chrome.runtime.sendMessage({
+      action: 'turbo:tab-video-changed',
+      videoId: newId
+    }).catch(() => {});
+  }
+
+  window.addEventListener('TURBO_YT_VIDEO_CHANGED', (e) => {
+    const detail = e.detail || {};
+    clearStreamsForNewVideo(detail.videoId, detail.title);
+  });
+
+  // Fast polling to detect URL query parameter change (v=...)
+  setInterval(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get('v') || '';
+      if (v && v !== currentVideoId) {
+        clearStreamsForNewVideo(v, getActiveVideoTitle());
+      }
+    } catch {}
+  }, 300);
+
   function getQualityFromDimensions(w, h) {
-    const maxDim = Math.max(w, h);
-    if (maxDim >= 3800 || h >= 2100) return '2160p 4K';
-    if (maxDim >= 2500 || h >= 1400) return '1440p 2K';
-    if (maxDim >= 1800 || h >= 1000) return '1080p Full HD';
-    if (maxDim >= 1200 || h >= 700) return '720p HD';
-    if (maxDim >= 800 || h >= 460) return '480p SD';
-    if (maxDim >= 600 || h >= 340) return '360p';
+    const maxDim = Math.max(w || 0, h || 0);
+    const minDim = Math.min(w || 0, h || 0);
+    if (minDim >= 2100 || maxDim >= 3800) return '2160p 4K';
+    if (minDim >= 1400 || maxDim >= 2500) return '1440p 2K';
+    if (minDim >= 1000 || maxDim >= 1800) return '1080p Full HD';
+    if (minDim >= 700 || maxDim >= 1200) return '720p HD';
+    if (minDim >= 460 || maxDim >= 800) return '480p SD';
+    if (minDim >= 340 || maxDim >= 600) return '360p';
     return 'Video';
   }
 
   function addGenericMediaStream(stream) {
     if (!stream || !stream.url) return;
-    if (genericStreams.some(s => s.url === stream.url)) return;
 
-    const extMatch = stream.url.match(/\.(mp4|webm|mkv|m4v|mov|avi|flv|m3u8|ts|mp3|m4a|ogg)(\?|$)/i);
-    const ext = extMatch ? extMatch[1].toUpperCase() : (stream.contentType?.includes('audio') ? 'MP3' : 'MP4');
-    const isAudio = stream.contentType?.startsWith('audio/') || ['MP3', 'M4A', 'OGG'].includes(ext);
-
-    let quality = stream.quality || (isAudio ? 'Audio' : 'Video');
-    if (currentTargetVideo && currentTargetVideo.videoWidth > 0 && !stream.quality && !isAudio) {
-      quality = getQualityFromDimensions(currentTargetVideo.videoWidth, currentTargetVideo.videoHeight);
+    let itag = stream.itag;
+    if (!itag) {
+      try {
+        itag = new URL(stream.url).searchParams.get('itag');
+      } catch {}
     }
 
-    genericStreams.push({
+    const itagInfo = itag ? YOUTUBE_ITAG_MAP[String(itag)] : null;
+    const isAudio = stream.type === 'audio' ||
+      stream.contentType?.startsWith('audio/') ||
+      itagInfo?.type === 'audio' ||
+      itagInfo?.format === 'M4A';
+
+    let format = itagInfo?.format || stream.format;
+    if (!format) {
+      const extMatch = stream.url.match(/\.(mp4|webm|mkv|m4v|mov|avi|flv|m3u8|ts|mp3|m4a|ogg)(\?|$)/i);
+      format = extMatch ? extMatch[1].toUpperCase() : (isAudio ? 'M4A' : 'MP4');
+    }
+
+    let quality = itagInfo?.quality;
+    if (!quality) {
+      if (currentTargetVideo && currentTargetVideo.videoWidth > 0 && !isAudio) {
+        quality = getQualityFromDimensions(currentTargetVideo.videoWidth, currentTargetVideo.videoHeight);
+      } else {
+        quality = stream.quality || (isAudio ? 'Audio' : 'Video');
+      }
+    }
+
+    let size = stream.size || '';
+    if (itag && ytMediaData?.itagMeta?.[String(itag)]?.size) {
+      size = ytMediaData.itagMeta[String(itag)].size;
+    }
+
+    const label = itagInfo?.label || `${quality} (${format})`;
+    const badge = itagInfo?.badge || null;
+    const isHD = itagInfo ? itagInfo.isHD : /720|1080|1440|2160|4K|2K|HD/i.test(quality);
+
+    const existingIdx = genericStreams.findIndex(s => s.url === stream.url || (itag && s.itag === itag));
+    const streamItem = {
       url: stream.url,
       quality,
-      label: `${quality} (${ext})`,
-      format: ext,
+      label,
+      badge,
+      format,
       type: isAudio ? 'audio' : 'video',
-      isHD: /720|1080|1440|2160|4K|2K|HD/i.test(quality),
-      size: stream.size || ''
-    });
+      isHD,
+      size,
+      itag: itag || null
+    };
+
+    if (existingIdx >= 0) {
+      genericStreams[existingIdx] = { ...genericStreams[existingIdx], ...streamItem };
+    } else {
+      genericStreams.push(streamItem);
+    }
 
     if (activeGrabber && isDropdownOpen) {
       renderDropdownItems();
@@ -170,8 +360,36 @@
 
   // Listen for YouTube Formats emitted by yt-helper.js
   window.addEventListener('TURBO_YT_FORMATS', (e) => {
-    if (e.detail && Array.isArray(e.detail.formats) && e.detail.formats.length > 0) {
+    if (!mediaGrabberEnabled) return;
+    if (e.detail) {
+      const curV = new URLSearchParams(window.location.search).get('v') || '';
+      if (curV && e.detail.videoId && e.detail.videoId !== curV) {
+        // Discard stale formats for old video
+        return;
+      }
       ytMediaData = e.detail;
+      currentVideoId = e.detail.videoId || curV;
+
+      // Update sizes on any existing genericStreams if itagMeta has them
+      if (ytMediaData.itagMeta) {
+        for (const s of genericStreams) {
+          if (s.itag && ytMediaData.itagMeta[String(s.itag)]?.size && !s.size) {
+            s.size = ytMediaData.itagMeta[String(s.itag)].size;
+          }
+        }
+      }
+
+      if (activeGrabber) {
+        const titleEl = activeGrabber.querySelector('#turboIdmTitle');
+        if (titleEl && ytMediaData.title) {
+          titleEl.textContent = ytMediaData.title;
+          titleEl.title = ytMediaData.title;
+        }
+        if (isDropdownOpen) {
+          renderDropdownItems();
+        }
+      }
+
       const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player') || document.querySelector('video');
       if (ytPlayer) {
         showGrabberFor(ytPlayer);
@@ -188,15 +406,13 @@
     activeGrabber = document.createElement('div');
     activeGrabber.className = 'turbo-idm-bar';
     activeGrabber.innerHTML = `
-      <div class="turbo-idm-btn" id="turboIdmMainBtn" title="Download this video with Turbo Download Manager">
+      <div class="turbo-idm-btn" id="turboIdmMainBtn" title="Download Video (TDM)">
         <span class="turbo-idm-icon">⚡</span>
-        <span class="turbo-idm-text">Download this video</span>
-        <span class="turbo-idm-arrow">▾</span>
       </div>
       <div class="turbo-idm-dropdown" id="turboIdmDropdown">
         <div class="turbo-idm-dropdown-header">
           <div class="turbo-idm-header-top">
-            <span class="turbo-idm-brand">⚡ Turbo Accelerator</span>
+            <span class="turbo-idm-brand">⚡ TDM Accelerator</span>
             <button type="button" class="turbo-idm-close" id="turboIdmCloseBtn" title="Close">✕</button>
           </div>
           <div class="turbo-idm-title" id="turboIdmTitle">Video Title</div>
@@ -241,16 +457,136 @@
   }
 
   function getAvailableMediaStreams() {
-    if (window.location.hostname.includes('youtube.com') && ytMediaData && ytMediaData.formats) {
-      return ytMediaData.formats;
+    const results = [];
+    const seenUrls = new Set();
+    const seenLabels = new Set();
+
+    // 1. YouTube Helper Formats (from internal player response)
+    if (ytMediaData && Array.isArray(ytMediaData.formats)) {
+      for (const f of ytMediaData.formats) {
+        if (f.url && !seenUrls.has(f.url)) {
+          let size = f.size || '';
+          if (f.itag && ytMediaData.itagMeta?.[String(f.itag)]?.size) {
+            size = ytMediaData.itagMeta[String(f.itag)].size;
+          }
+          results.push({
+            ...f,
+            size
+          });
+          seenUrls.add(f.url);
+          seenLabels.add(f.label);
+        }
+      }
     }
 
-    const results = [...genericStreams];
+    // 2. Streams sniffed by webRequest in background.js (including 4K, 2K, 1080p, 720p, 480p, 360p, Audio)
+    for (const stream of genericStreams) {
+      if (stream.url && !seenUrls.has(stream.url)) {
+        let itag = stream.itag;
+        if (!itag) {
+          try {
+            itag = new URL(stream.url).searchParams.get('itag');
+          } catch {}
+        }
 
-    // Inspect current video element
-    if (currentTargetVideo) {
+        const itagInfo = itag ? YOUTUBE_ITAG_MAP[String(itag)] : null;
+        let quality = itagInfo?.quality || stream.quality;
+        let badge = itagInfo?.badge || stream.badge;
+        let format = itagInfo?.format || stream.format;
+        let isHD = itagInfo ? itagInfo.isHD : stream.isHD;
+        const isAudio = stream.type === 'audio' ||
+          stream.contentType?.startsWith('audio/') ||
+          itagInfo?.type === 'audio' ||
+          itagInfo?.format === 'M4A';
+
+        if ((!quality || quality === 'Video') && currentTargetVideo && currentTargetVideo.videoWidth > 0 && !isAudio) {
+          quality = getQualityFromDimensions(currentTargetVideo.videoWidth, currentTargetVideo.videoHeight);
+          isHD = /720|1080|1440|2160|4K|2K|HD/i.test(quality);
+        }
+
+        let size = stream.size || '';
+        if (itag && ytMediaData?.itagMeta?.[String(itag)]?.size) {
+          size = ytMediaData.itagMeta[String(itag)].size;
+        }
+
+        const qualityName = quality || (isAudio ? 'Audio' : 'Video');
+        const formatName = format || (isAudio ? 'M4A' : 'MP4');
+        const label = itagInfo?.label || `${qualityName} (${formatName})`;
+
+        if (!seenLabels.has(label)) {
+          results.push({
+            url: stream.url,
+            quality: qualityName,
+            badge,
+            label,
+            format: formatName,
+            type: isAudio ? 'audio' : 'video',
+            isHD,
+            size,
+            itag
+          });
+          seenUrls.add(stream.url);
+          seenLabels.add(label);
+        }
+      }
+    }
+
+    // 3. YouTube Multi-Quality Synthesis from active playback base URL + itagMeta
+    let sampleUrl = null;
+    const ytSample = genericStreams.find(s => s.url && s.url.includes('googlevideo.com/videoplayback'));
+    if (ytSample && ytSample.url) {
+      sampleUrl = ytSample.url;
+    } else {
+      try {
+        const gvEntry = performance.getEntriesByType('resource').find(e => e.name && e.name.includes('googlevideo.com/videoplayback'));
+        if (gvEntry) sampleUrl = gvEntry.name;
+      } catch {}
+    }
+
+    if (sampleUrl && ytMediaData?.itagMeta) {
+      for (const [metaItag, meta] of Object.entries(ytMediaData.itagMeta)) {
+        const itagInfo = YOUTUBE_ITAG_MAP[metaItag];
+        if (!itagInfo) continue;
+        const isAudio = itagInfo.type === 'audio' || itagInfo.format === 'M4A';
+        const qualityName = itagInfo.quality || (isAudio ? 'Audio' : 'Video');
+        const formatName = itagInfo.format || (isAudio ? 'M4A' : 'MP4');
+        const label = itagInfo.label || `${qualityName} (${formatName})`;
+        if (seenLabels.has(label)) continue;
+
+        let variantUrl = sampleUrl;
+        try {
+          const u = new URL(sampleUrl);
+          u.searchParams.set('itag', metaItag);
+          variantUrl = u.toString();
+        } catch {
+          variantUrl = sampleUrl.replace(/([?&])itag=\d+/, `$1itag=${metaItag}`);
+          if (!variantUrl.includes('itag=')) {
+            variantUrl += (variantUrl.includes('?') ? '&' : '?') + `itag=${metaItag}`;
+          }
+        }
+
+        if (seenUrls.has(variantUrl)) continue;
+
+        results.push({
+          url: variantUrl,
+          quality: qualityName,
+          badge: itagInfo.badge,
+          label,
+          format: formatName,
+          type: isAudio ? 'audio' : 'video',
+          isHD: itagInfo.isHD,
+          size: meta.size || '',
+          itag: metaItag
+        });
+        seenUrls.add(variantUrl);
+        seenLabels.add(label);
+      }
+    }
+
+    // 4. Current active video element direct source (for direct mp4 sites)
+    if (currentTargetVideo && !window.location.hostname.includes('youtube.com')) {
       const src = currentTargetVideo.currentSrc || currentTargetVideo.src;
-      if (src && !src.startsWith('blob:') && !src.startsWith('data:') && !results.some(r => r.url === src)) {
+      if (src && !src.startsWith('blob:') && !src.startsWith('data:') && !seenUrls.has(src)) {
         const quality = currentTargetVideo.videoWidth > 0
           ? getQualityFromDimensions(currentTargetVideo.videoWidth, currentTargetVideo.videoHeight)
           : 'Original Stream';
@@ -263,13 +599,14 @@
           isHD: /720|1080|1440|2160|4K|2K|HD/i.test(quality),
           size: ''
         });
+        seenUrls.add(src);
       }
 
       // Inspect <source> children
       const sources = currentTargetVideo.querySelectorAll('source');
       sources.forEach(source => {
         const sUrl = source.src;
-        if (sUrl && !sUrl.startsWith('blob:') && !results.some(r => r.url === sUrl)) {
+        if (sUrl && !sUrl.startsWith('blob:') && !seenUrls.has(sUrl)) {
           const res = source.getAttribute('res') || source.getAttribute('size') || source.getAttribute('label') || 'MP4';
           results.push({
             url: sUrl,
@@ -280,9 +617,27 @@
             isHD: /720|1080|1440|2160|4K|2K|HD/i.test(res),
             size: ''
           });
+          seenUrls.add(sUrl);
         }
       });
     }
+
+    // Strict descending sort: 8K, 4K, 2K, 1080p, 720p, 480p, 360p, 240p, 144p, Audio
+    const getRank = (item) => {
+      if (item.type === 'audio') return 10;
+      const text = `${item.badge || ''} ${item.quality || ''} ${item.label || ''}`.toUpperCase();
+      if (text.includes('8K') || text.includes('4320')) return 110;
+      if (text.includes('4K') || text.includes('2160')) return 100;
+      if (text.includes('2K') || text.includes('1440')) return 90;
+      if (text.includes('1080')) return 80;
+      if (text.includes('720')) return item.isMuxed ? 75 : 70;
+      if (text.includes('480')) return 60;
+      if (text.includes('360')) return item.isMuxed ? 55 : 50;
+      if (text.includes('240')) return 40;
+      if (text.includes('144')) return 30;
+      return 45;
+    };
+    results.sort((a, b) => getRank(b) - getRank(a));
 
     return results;
   }
@@ -292,7 +647,7 @@
     const listEl = activeGrabber.querySelector('#turboIdmList');
     const titleEl = activeGrabber.querySelector('#turboIdmTitle');
 
-    const videoTitle = (ytMediaData && ytMediaData.title) ? ytMediaData.title : cleanPageTitle();
+    const videoTitle = getActiveVideoTitle();
     titleEl.textContent = videoTitle;
     titleEl.title = videoTitle;
 
@@ -301,7 +656,7 @@
     if (streams.length === 0) {
       listEl.innerHTML = `
         <div class="turbo-idm-empty">
-          <p>No direct video stream detected yet.<br>Play the video to capture stream quality.</p>
+          <p>Scanning video stream qualities...<br>Play the video to capture high-definition stream.</p>
         </div>
       `;
       return;
@@ -309,9 +664,44 @@
 
     listEl.innerHTML = streams.map((stream, idx) => {
       const isAudio = stream.type === 'audio';
-      const pillClass = isAudio ? 'audio' : (stream.isHD ? 'hd' : 'sd');
+      const q = String(stream.quality || '').toUpperCase();
+      const l = String(stream.label || '').toUpperCase();
+
+      let pillText = stream.badge || 'SD';
+      let pillClass = 'sd';
+
+      if (isAudio) {
+        pillText = 'AUDIO';
+        pillClass = 'audio';
+      } else if (q.includes('8K') || l.includes('8K')) {
+        pillText = '8K';
+        pillClass = 'hd pill-4k';
+      } else if (q.includes('4K') || q.includes('2160') || l.includes('4K') || l.includes('2160')) {
+        pillText = '4K';
+        pillClass = 'hd pill-4k';
+      } else if (q.includes('2K') || q.includes('1440') || l.includes('2K') || l.includes('1440')) {
+        pillText = '2K';
+        pillClass = 'hd pill-2k';
+      } else if (q.includes('1080') || l.includes('1080')) {
+        pillText = '1080P';
+        pillClass = 'hd pill-1080';
+      } else if (q.includes('720') || l.includes('720')) {
+        pillText = '720P';
+        pillClass = 'hd pill-720';
+      } else if (q.includes('480') || l.includes('480')) {
+        pillText = '480P';
+        pillClass = 'sd';
+      } else if (q.includes('360') || l.includes('360')) {
+        pillText = '360P';
+        pillClass = 'sd';
+      } else if (stream.isHD) {
+        pillText = 'HD';
+        pillClass = 'hd';
+      }
+
       const icon = isAudio ? '🎵' : '🎬';
-      const sizeText = stream.size ? `<span class="turbo-idm-size">${stream.size}</span>` : '';
+      const sizeText = stream.size ? `<span class="turbo-idm-size">${escapeHtml(stream.size)}</span>` : '';
+      const subInfo = `${escapeHtml(stream.format || 'MP4')}${stream.isMuxed ? ' · Video + Audio' : (isAudio ? ' · Audio Only' : ' · Video Stream')}`;
 
       return `
         <div class="turbo-idm-row" data-index="${idx}">
@@ -319,10 +709,10 @@
             <span class="turbo-idm-media-icon">${icon}</span>
             <div class="turbo-idm-quality-info">
               <div class="turbo-idm-quality-top">
-                <span class="turbo-idm-pill ${pillClass}">${escapeHtml(stream.quality)}</span>
+                <span class="turbo-idm-pill ${pillClass}">${escapeHtml(pillText)}</span>
                 <span class="turbo-idm-quality-label">${escapeHtml(stream.label)}</span>
               </div>
-              <div class="turbo-idm-quality-sub">${escapeHtml(stream.format || 'MP4')}${stream.isMuxed ? ' · Video + Audio' : ''}</div>
+              <div class="turbo-idm-quality-sub">${subInfo}</div>
             </div>
           </div>
           <div class="turbo-idm-row-right">
@@ -346,13 +736,16 @@
         }
 
         const ext = stream.format ? stream.format.toLowerCase() : (stream.type === 'audio' ? 'm4a' : 'mp4');
-        const qualSuffix = stream.quality ? ` [${stream.quality}]` : '';
+        const qTag = stream.badge || stream.quality || '';
+        const qualSuffix = qTag ? ` [${qTag.replace(/\s+/g, '_')}]` : '';
         const finalFilename = `${videoTitle}${qualSuffix}.${ext}`;
 
         chrome.runtime.sendMessage({
           action: 'downloadUrl',
           url: stream.url,
-          filename: finalFilename
+          filename: finalFilename,
+          referer: window.location.href,
+          origin: window.location.origin
         }, (res) => {
           if (dlBtn) {
             if (res && res.success) {
@@ -381,6 +774,18 @@
     ensureGrabber();
     isDropdownOpen = true;
     activeGrabber.classList.add('is-open');
+
+    // Request latest player formats from page context
+    window.dispatchEvent(new CustomEvent('TURBO_REQUEST_YT_FORMATS'));
+
+    // Query latest streams from background
+    chrome.runtime.sendMessage({ action: 'getTabMedia' }, (res) => {
+      if (res && Array.isArray(res.streams)) {
+        res.streams.forEach(addGenericMediaStream);
+      }
+      renderDropdownItems();
+    });
+
     renderDropdownItems();
   }
 
@@ -392,7 +797,25 @@
 
   function positionGrabber(targetEl) {
     if (!activeGrabber) return;
+    const isYouTube = window.location.hostname.includes('youtube.com');
     const fullscreenEl = document.fullscreenElement;
+
+    // On YouTube: Always anchor strictly inside the main player container at the top-right corner
+    if (isYouTube) {
+      const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+      if (ytPlayer) {
+        if (activeGrabber.parentElement !== ytPlayer) {
+          ytPlayer.appendChild(activeGrabber);
+        }
+        activeGrabber.style.position = 'absolute';
+        activeGrabber.style.top = '14px';
+        activeGrabber.style.right = '18px';
+        activeGrabber.style.left = 'auto';
+        activeGrabber.style.bottom = 'auto';
+        activeGrabber.style.zIndex = '2147483647';
+        return;
+      }
+    }
 
     // In fullscreen mode, mount inside fullscreen element so it stays on top
     if (fullscreenEl && activeGrabber.parentElement !== fullscreenEl) {
@@ -401,6 +824,7 @@
       activeGrabber.style.top = '16px';
       activeGrabber.style.right = '16px';
       activeGrabber.style.left = 'auto';
+      activeGrabber.style.bottom = 'auto';
       return;
     }
 
@@ -408,20 +832,93 @@
       document.body.appendChild(activeGrabber);
     }
 
-    const rect = targetEl.getBoundingClientRect();
-    if (rect.width <= 0 || rect.height <= 0) return;
+    const rect = targetEl ? targetEl.getBoundingClientRect() : null;
+    if (!rect || rect.width <= 0 || rect.height <= 0) return;
 
+    // Pin the 34px icon button strictly to the top-right corner of the video
     activeGrabber.style.position = 'absolute';
-    activeGrabber.style.top = `${window.scrollY + rect.top + 12}px`;
-    activeGrabber.style.left = `${window.scrollX + rect.right - 230}px`;
+    activeGrabber.style.top = `${window.scrollY + rect.top + 10}px`;
+    activeGrabber.style.left = `${window.scrollX + rect.right - 46}px`;
     activeGrabber.style.right = 'auto';
+    activeGrabber.style.bottom = 'auto';
+    activeGrabber.style.zIndex = '2147483647';
+  }
+
+  function isDecorativeOrCoveredVideo(el) {
+    if (!el || !document.contains(el)) return true;
+
+    // Filter out thumbnail previews, tiny preview players, or miniature elements
+    const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+    if (!rect || rect.width < 320 || rect.height < 180) {
+      return true;
+    }
+
+    // Must be in viewport
+    if (rect.bottom < 50 || rect.top > window.innerHeight - 50 || rect.right < 50 || rect.left > window.innerWidth - 50) {
+      return true;
+    }
+
+    // Must be visible
+    const style = window.getComputedStyle(el);
+    if (style.visibility === 'hidden' || style.display === 'none' || parseFloat(style.opacity || '1') < 0.1) {
+      return true;
+    }
+
+    // Exclude background decorative autoplay loops without controls
+    if (el.tagName === 'VIDEO') {
+      if (el.autoplay && el.loop && el.muted && !el.controls) return true;
+      if (style.position === 'fixed' || style.position === 'absolute') {
+        if (el.clientWidth >= window.innerWidth * 0.9 && el.clientHeight >= window.innerHeight * 0.9) {
+          return true;
+        }
+      }
+      if (style.pointerEvents === 'none') return true;
+    }
+
+    // Exclude elements inside background containers, modals, or dialogs
+    if (el.closest?.('.bg-video, .background-video, #bg-video, [aria-hidden="true"], [inert]')) {
+      return true;
+    }
+
+    // Exclude YouTube homepage and search thumbnail preview elements
+    if (el.closest?.('ytd-thumbnail, ytd-video-preview, #inline-preview-player, ytd-rich-grid-media, ytd-compact-video-renderer')) {
+      return true;
+    }
+
+    // Check if an overlay, modal, form dialog or input is covering the video
+    const centerX = rect.left + rect.width / 2;
+    const centerY = rect.top + rect.height / 2;
+    if (centerX >= 0 && centerX <= window.innerWidth && centerY >= 0 && centerY <= window.innerHeight) {
+      const topEl = document.elementFromPoint(centerX, centerY);
+      if (topEl && topEl !== el && !el.contains(topEl) && !topEl.contains(el)) {
+        if (topEl.closest?.('dialog, [role="dialog"], form, .modal, .popup, input, textarea, select')) {
+          return true;
+        }
+      }
+    }
+
+    return false;
   }
 
   function showGrabberFor(videoEl) {
+    if (!mediaGrabberEnabled) return;
     if (!videoEl) return;
+    if (isDecorativeOrCoveredVideo(videoEl)) return;
+
+    if (window.location.hostname.includes('youtube.com')) {
+      const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+      if (ytPlayer) {
+        currentTargetVideo = ytPlayer;
+        const grabber = ensureGrabber();
+        positionGrabber(ytPlayer);
+        grabber.classList.add('is-visible');
+        clearTimeout(hideTimer);
+        return;
+      }
+    }
+
     currentTargetVideo = videoEl;
     const grabber = ensureGrabber();
-
     positionGrabber(videoEl);
     grabber.classList.add('is-visible');
     clearTimeout(hideTimer);
@@ -446,6 +943,38 @@
   // 3. Page Video Listeners (YouTube + Generic Sites)
   // -------------------------------------------------------------
   function scanForVideos() {
+    if (!mediaGrabberEnabled) return;
+    // YouTube specific player hook
+    if (window.location.hostname.includes('youtube.com')) {
+      const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+      if (ytPlayer && !ytPlayer._turboHooked) {
+        ytPlayer._turboHooked = true;
+        ytPlayer.addEventListener('mouseenter', () => {
+          showGrabberFor(ytPlayer);
+        });
+        ytPlayer.addEventListener('mouseleave', () => {
+          scheduleHide();
+        });
+      }
+
+      const v = (ytPlayer ? ytPlayer.querySelector('video') : null) || document.querySelector('video');
+      if (v && !v._turboVideoHooked) {
+        v._turboVideoHooked = true;
+        currentTargetVideo = v;
+        const syncStreams = () => {
+          chrome.runtime.sendMessage({ action: 'getTabMedia' }, (res) => {
+            if (res && Array.isArray(res.streams)) {
+              res.streams.forEach(addGenericMediaStream);
+            }
+          });
+        };
+        v.addEventListener('play', syncStreams);
+        v.addEventListener('playing', syncStreams);
+        v.addEventListener('loadedmetadata', syncStreams);
+      }
+      return;
+    }
+
     const videos = document.querySelectorAll('video');
     videos.forEach(v => {
       if (v._turboHooked) return;
@@ -460,39 +989,38 @@
       });
 
       v.addEventListener('play', () => {
-        showGrabberFor(v);
-        // Ask background for any media streams detected on this tab
+        // Collect detected streams in the background without popping up over forms
         chrome.runtime.sendMessage({ action: 'getTabMedia' }, (res) => {
           if (res && Array.isArray(res.streams)) {
             res.streams.forEach(addGenericMediaStream);
           }
         });
-        if (window.location.hostname.includes('youtube.com')) {
-          window.dispatchEvent(new CustomEvent('TURBO_REQUEST_YT_FORMATS'));
-        }
       });
     });
-
-    // YouTube specific player hook
-    if (window.location.hostname.includes('youtube.com')) {
-      const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-      if (ytPlayer && !ytPlayer._turboHooked) {
-        ytPlayer._turboHooked = true;
-        ytPlayer.addEventListener('mouseenter', () => {
-          showGrabberFor(ytPlayer);
-        });
-        ytPlayer.addEventListener('mouseleave', () => {
-          scheduleHide();
-        });
-      }
-    }
   }
 
   document.addEventListener('mouseover', (e) => {
     const target = e.target;
-    if (target.tagName === 'VIDEO' || target.closest?.('#movie_player') || target.closest?.('.html5-video-player')) {
-      const v = target.tagName === 'VIDEO' ? target : target.querySelector('video') || target;
-      showGrabberFor(v);
+
+    // Immediately hide if user is interacting with forms, dialogs, or inputs
+    if (target.closest?.('form, dialog, [role="dialog"], input, textarea, select, .modal, .popup')) {
+      if (!isDropdownOpen && activeGrabber) {
+        activeGrabber.classList.remove('is-visible');
+      }
+      return;
+    }
+
+    // On YouTube: strictly only care about the main #movie_player
+    if (window.location.hostname.includes('youtube.com')) {
+      const ytPlayer = target.closest?.('#movie_player') || (target.id === 'movie_player' ? target : null);
+      if (ytPlayer) {
+        showGrabberFor(ytPlayer);
+      }
+      return;
+    }
+
+    if (target.tagName === 'VIDEO') {
+      showGrabberFor(target);
     }
   }, true);
 

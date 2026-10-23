@@ -374,6 +374,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ streams: tabMediaStreams.get(tabId) || [] });
     return false;
   }
+  if (request.action === 'turbo:reload-extension') {
+    chrome.runtime.reload();
+    sendResponse({ success: true });
+    return false;
+  }
 });
 
 // 4. Universal Media Sniffer (Non-blocking webRequest observer)
@@ -514,22 +519,13 @@ function registerMediaStream(tabId, rawUrl, headers = []) {
       cleanUrl = parsed.toString();
     } catch {}
 
-    // Require valid itag parameter
+    // In modern YouTube SABR, the playback request may not have explicit itag in query string
     if (!itag) {
-      return;
+      itag = '137';
     }
   }
 
   let streams = tabMediaStreams.get(tabId) || [];
-
-  if (isYouTubeStream && ytStreamId) {
-    const existingWithId = streams.find(s => s.ytStreamId);
-    if (existingWithId && existingWithId.ytStreamId !== ytStreamId) {
-      // Detected new video playback stream on this tab! Flush old video streams.
-      streams = [];
-      tabMediaStreams.delete(tabId);
-    }
-  }
 
   const itagInfo = itag ? YOUTUBE_ITAG_MAP[String(itag)] : null;
   const isAudio = itagInfo?.type === 'audio' || contentType.startsWith('audio/') || (itagInfo?.format === 'M4A');
@@ -558,17 +554,18 @@ function registerMediaStream(tabId, rawUrl, headers = []) {
     streams.push(streamInfo);
   }
 
-  // When a valid YouTube stream is intercepted, synthesize all available video and audio qualities for this video
+  // When a valid YouTube stream is intercepted, synthesize qualities for this media type
   if (isYouTubeStream && itag && cleanUrl) {
     let candidateItags = [];
-    if (aitagsStr) {
-      candidateItags = aitagsStr.split(',').filter(Boolean);
-    }
-    if (candidateItags.length === 0) {
-      candidateItags = ['313', '401', '308', '271', '137', '248', '136', '247', '135', '244', '134', '243', '140', '251'];
+    if (!isAudio) {
+      if (aitagsStr) {
+        candidateItags = aitagsStr.split(',').filter(Boolean);
+      }
+      if (candidateItags.length === 0) {
+        candidateItags = ['313', '401', '308', '271', '137', '248', '136', '247', '135', '244', '134', '243'];
+      }
     } else {
-      if (!candidateItags.includes('140')) candidateItags.push('140');
-      if (!candidateItags.includes('251')) candidateItags.push('251');
+      candidateItags = ['140', '141', '251', '250'];
     }
 
     const baseHdrs = mediaHeadersCache.get(cleanUrl);
@@ -578,7 +575,18 @@ function registerMediaStream(tabId, rawUrl, headers = []) {
       const cInfo = YOUTUBE_ITAG_MAP[cItag];
       if (!cInfo) continue;
 
-      const variantUrl = cleanUrl.replace(/([?&])itag=\d+/, `$1itag=${cItag}`);
+      let variantUrl = cleanUrl;
+      try {
+        const u = new URL(cleanUrl);
+        u.searchParams.set('itag', cItag);
+        variantUrl = u.toString();
+      } catch {
+        variantUrl = cleanUrl.replace(/([?&])itag=\d+/, `$1itag=${cItag}`);
+        if (!variantUrl.includes('itag=')) {
+          variantUrl += (variantUrl.includes('?') ? '&' : '?') + `itag=${cItag}`;
+        }
+      }
+
       if (baseHdrs) {
         mediaHeadersCache.set(variantUrl, baseHdrs);
       }
@@ -649,6 +657,10 @@ if (chrome.webRequest) {
             parsed.searchParams.delete('ump');
             mediaHeadersCache.set(parsed.toString(), hdrs);
           } catch {}
+
+          if (details.url.includes('googlevideo.com/videoplayback')) {
+            registerMediaStream(details.tabId, details.url, details.requestHeaders || []);
+          }
         }
       }, { urls: ["*://*.googlevideo.com/*", "<all_urls>"] }, ['requestHeaders', 'extraHeaders']);
     }

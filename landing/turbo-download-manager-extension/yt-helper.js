@@ -22,17 +22,9 @@
 
   function resolveStreamUrl(format) {
     if (format.url) return format.url;
-    if (format.signatureCipher || format.cipher) {
-      const cipher = format.signatureCipher || format.cipher;
-      const params = new URLSearchParams(cipher);
-      const url = params.get('url');
-      const sig = params.get('s') || params.get('sig');
-      const sp = params.get('sp') || 'signature';
-      if (url) {
-        if (sig) return `${url}&${sp}=${encodeURIComponent(sig)}`;
-        return url;
-      }
-    }
+    // Note: If format has signatureCipher, s is encrypted and requires client-side deciphering.
+    // Returning an un-deciphered URL causes immediate HTTP 403 Forbidden from Google Video.
+    // Real deciphered streams are sniffed directly from active webRequest playback.
     return null;
   }
 
@@ -128,7 +120,36 @@
       }
     }
 
-    if (list.length === 0) return null;
+    // Collect format metadata (itags, real sizes in bytes, resolutions)
+    const itagMeta = {};
+    for (const f of formats) {
+      if (f.itag) {
+        const rawBytes = f.contentLength ? parseInt(f.contentLength, 10) :
+          (f.bitrate && duration > 0 ? Math.round((f.bitrate * duration) / 8) : 0);
+        itagMeta[String(f.itag)] = {
+          itag: f.itag,
+          qualityLabel: f.qualityLabel || (f.height ? `${f.height}p` : ''),
+          contentLength: rawBytes,
+          size: rawBytes > 0 ? formatBytes(rawBytes) : '',
+          mimeType: f.mimeType || '',
+          fps: f.fps || 0
+        };
+      }
+    }
+    for (const f of adaptive) {
+      if (f.itag) {
+        const rawBytes = f.contentLength ? parseInt(f.contentLength, 10) :
+          (f.bitrate && duration > 0 ? Math.round((f.bitrate * duration) / 8) : 0);
+        itagMeta[String(f.itag)] = {
+          itag: f.itag,
+          qualityLabel: f.qualityLabel || (f.height ? `${f.height}p` : ''),
+          contentLength: rawBytes,
+          size: rawBytes > 0 ? formatBytes(rawBytes) : '',
+          mimeType: f.mimeType || '',
+          fps: f.fps || 0
+        };
+      }
+    }
 
     // Sort order: 2160p, 1440p, 1080p, 720p, 480p, 360p, 240p, 144p, Audio
     const getRank = (item) => {
@@ -148,8 +169,54 @@
       title,
       videoId,
       duration,
-      formats: list
+      formats: list,
+      itagMeta
     };
+  }
+
+  function getCurrentVideoId() {
+    try {
+      const p = new URLSearchParams(window.location.search).get('v');
+      if (p) return p;
+    } catch {}
+    try {
+      const player = document.getElementById('movie_player');
+      if (player && typeof player.getVideoData === 'function') {
+        const v = player.getVideoData();
+        if (v && v.video_id) return v.video_id;
+      }
+    } catch {}
+    return '';
+  }
+
+  function getCurrentVideoTitle() {
+    try {
+      const player = document.getElementById('movie_player');
+      if (player && typeof player.getVideoData === 'function') {
+        const v = player.getVideoData();
+        if (v && v.title) return cleanTitle(v.title);
+      }
+    } catch {}
+    try {
+      const h1 = document.querySelector('h1.ytd-watch-metadata yt-formatted-string, #title h1 yt-formatted-string');
+      if (h1 && h1.textContent && h1.textContent.trim()) {
+        return cleanTitle(h1.textContent.trim());
+      }
+    } catch {}
+    return '';
+  }
+
+  function handleVideoSwitch(newId) {
+    if (!newId || newId === lastVideoId) return;
+    lastVideoId = newId;
+    cachedData = null; // Clear stale format cache immediately
+    const title = getCurrentVideoTitle();
+    window.dispatchEvent(new CustomEvent('TURBO_YT_VIDEO_CHANGED', {
+      detail: { videoId: newId, title }
+    }));
+    setTimeout(notifyFormats, 300);
+    setTimeout(notifyFormats, 900);
+    setTimeout(notifyFormats, 1800);
   }
 
   function getPlayerResponse() {
@@ -171,9 +238,14 @@
   function notifyFormats() {
     const raw = getPlayerResponse();
     const data = extractFormats(raw);
-    if (data && data.formats.length > 0) {
+    if (data) {
+      const currentV = getCurrentVideoId();
+      if (currentV && data.videoId && data.videoId !== currentV) {
+        // Response is still stale from the previous video; skip
+        return;
+      }
       cachedData = data;
-      lastVideoId = data.videoId;
+      lastVideoId = data.videoId || currentV || lastVideoId;
       window.dispatchEvent(new CustomEvent('TURBO_YT_FORMATS', {
         detail: data
       }));
@@ -191,10 +263,13 @@
         clone.json().then(json => {
           if (json && json.streamingData) {
             const data = extractFormats(json);
-            if (data && data.formats.length > 0) {
-              cachedData = data;
-              lastVideoId = data.videoId;
-              window.dispatchEvent(new CustomEvent('TURBO_YT_FORMATS', { detail: data }));
+            if (data) {
+              const currentV = getCurrentVideoId();
+              if (!currentV || !data.videoId || data.videoId === currentV) {
+                cachedData = data;
+                lastVideoId = data.videoId || currentV;
+                window.dispatchEvent(new CustomEvent('TURBO_YT_FORMATS', { detail: data }));
+              }
             }
           }
         }).catch(() => {});
@@ -213,27 +288,35 @@
   });
 
   // Watch for page navigation and video switches
-  ['yt-navigate-finish', 'yt-page-data-updated', 'spfdone'].forEach(evt => {
+  ['yt-navigate-start', 'yt-navigate-finish', 'yt-page-data-updated', 'spfdone', 'popstate'].forEach(evt => {
     window.addEventListener(evt, () => {
-      setTimeout(notifyFormats, 400);
-      setTimeout(notifyFormats, 1200);
+      const currentId = getCurrentVideoId();
+      if (currentId && currentId !== lastVideoId) {
+        handleVideoSwitch(currentId);
+      } else {
+        setTimeout(notifyFormats, 400);
+        setTimeout(notifyFormats, 1200);
+      }
     });
   });
 
-  // Check periodically when player is active
+  // Check periodically when player is active and ensure formats are captured
   setInterval(() => {
     try {
-      const currentId = new URLSearchParams(window.location.search).get('v') || '';
+      const currentId = getCurrentVideoId();
       if (currentId && currentId !== lastVideoId) {
+        handleVideoSwitch(currentId);
+      } else if (!cachedData || !cachedData.itagMeta || Object.keys(cachedData.itagMeta).length === 0) {
         notifyFormats();
       }
     } catch {}
-  }, 1000);
+  }, 500);
 
-  // Initial attempt
-  if (document.readyState === 'complete') {
-    setTimeout(notifyFormats, 500);
-  } else {
-    window.addEventListener('DOMContentLoaded', () => setTimeout(notifyFormats, 500));
-  }
+  // Initial attempt and staggered retries to ensure playerResponse is ready
+  [300, 800, 1500, 2500, 4000].forEach(delay => {
+    setTimeout(notifyFormats, delay);
+  });
+  window.addEventListener('DOMContentLoaded', () => {
+    [300, 1000, 2000].forEach(delay => setTimeout(notifyFormats, delay));
+  });
 })();

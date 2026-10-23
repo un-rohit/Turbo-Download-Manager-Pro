@@ -300,20 +300,23 @@
     });
   });
 
-  // Check periodically when player is active
+  // Check periodically when player is active and ensure formats are captured
   setInterval(() => {
     try {
       const currentId = getCurrentVideoId();
       if (currentId && currentId !== lastVideoId) {
         handleVideoSwitch(currentId);
+      } else if (!cachedData || !cachedData.itagMeta || Object.keys(cachedData.itagMeta).length === 0) {
+        notifyFormats();
       }
     } catch {}
-  }, 300);
+  }, 500);
 
-  // Initial attempt
-  if (document.readyState === 'complete') {
-    setTimeout(notifyFormats, 500);
-  } else {
-    window.addEventListener('DOMContentLoaded', () => setTimeout(notifyFormats, 500));
-  }
+  // Initial attempt and staggered retries to ensure playerResponse is ready
+  [300, 800, 1500, 2500, 4000].forEach(delay => {
+    setTimeout(notifyFormats, delay);
+  });
+  window.addEventListener('DOMContentLoaded', () => {
+    [300, 1000, 2000].forEach(delay => setTimeout(notifyFormats, delay));
+  });
 })();

@@ -1,17 +1,17 @@
 # Graph Report - REA  (2026-10-23)
 
 ## Corpus Check
-- 49 files · ~80,705 words
+- 49 files · ~85,456 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 19 file(s) not represented in the graph (top: .css 9, (none) 3, .zip 2)
 
 ## Summary
-- 666 nodes · 1094 edges · 38 communities (30 shown, 8 thin omitted)
-- Extraction: 97% EXTRACTED · 3% INFERRED · 0% AMBIGUOUS · INFERRED: 28 edges (avg confidence: 0.85)
+- 678 nodes · 1120 edges · 36 communities (30 shown, 6 thin omitted)
+- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 28 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `7affc110`
+- Built from commit: `07e57b8a`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -33,14 +33,12 @@
 - GEMINI.md
 - copilot-instructions.md
 - vercel.json
-- QuantumEnergyFlowCanvas
 - MultiInterfaceDownload
 - turbo-download-manager-extension/manifest.json
 - turbo-download-manager-windows-portable/extension/manifest.json
 - turbo-download-manager-windows-portable/package.json
 - downloadManager
-- turbo-download-manager-windows-portable/server.js
-- QuantumEnergyFlowCanvas
+- server.js
 - Turbo Download Manager Pro ⚡
 - turbo-download-manager-extension/background.js
 - turbo-download-manager-windows-portable/extension/background.js
@@ -81,19 +79,19 @@
 ## Import Cycles
 - None detected.
 
-## Communities (38 total, 8 thin omitted)
+## Communities (36 total, 6 thin omitted)
 
 ### Community 1 - "public/app.js"
-Cohesion: 0.07
-Nodes (45): acceptNewDownload(), activeDownloads, appAlert(), appConfirm(), appDialogQueue, applySpeedTestResult(), appPrompt(), closeDownloadMenus() (+37 more)
+Cohesion: 0.06
+Nodes (46): acceptNewDownload(), activeDownloads, appAlert(), appConfirm(), appDialogQueue, applySpeedTestResult(), appPrompt(), closeDownloadMenus() (+38 more)
 
 ### Community 2 - "manifest.json"
 Cohesion: 0.10
 Nodes (20): action, default_icon, default_popup, background, service_worker, content_scripts, 128, 16 (+12 more)
 
 ### Community 3 - "turbo-download-manager-windows-portable/public/app.js"
-Cohesion: 0.07
-Nodes (45): acceptNewDownload(), activeDownloads, appAlert(), appConfirm(), appDialogQueue, applySpeedTestResult(), appPrompt(), closeDownloadMenus() (+37 more)
+Cohesion: 0.06
+Nodes (46): acceptNewDownload(), activeDownloads, appAlert(), appConfirm(), appDialogQueue, applySpeedTestResult(), appPrompt(), closeDownloadMenus() (+38 more)
 
 ### Community 4 - "Turbo Download Manager Pro ⚡"
 Cohesion: 0.13
@@ -151,17 +149,17 @@ Nodes (20): action, default_icon, default_popup, background, service_worker, con
 Cohesion: 0.10
 Nodes (20): author, description, devDependencies, electron, @electron/packager, electron, @electron/packager, keywords (+12 more)
 
-### Community 25 - "turbo-download-manager-windows-portable/server.js"
+### Community 25 - "server.js"
 Cohesion: 0.05
-Nodes (38): { app, BrowserWindow, Tray, Menu, nativeImage, shell }, fs, gotTheLock, path, startServer(), { app, BrowserWindow, Tray, Menu, nativeImage, shell }, fs, gotTheLock (+30 more)
+Nodes (38): { app, BrowserWindow, Tray, Menu, nativeImage, shell }, fs, gotTheLock, path, startServer(), categorizeInterface(), getNetworkInterfaces(), isVirtualMachineInterface() (+30 more)
 
 ### Community 27 - "Turbo Download Manager Pro ⚡"
 Cohesion: 0.13
 Nodes (14): 🧩 Browser Extension Setup (15 Seconds), 📥 Downloads, Extension Features:, Installation Steps:, ⚡ Key Highlights, 🌐 Landing Page, 📄 License, Method 1: Instant Run (No Installation) (+6 more)
 
 ### Community 28 - "turbo-download-manager-extension/background.js"
-Cohesion: 0.29
-Nodes (3): readJsonResponse(), sendToTurboDownloader(), tabMediaStreams
+Cohesion: 0.22
+Nodes (10): ensureDesktopAppRunning(), formatByteCount(), getQualityLabelFromItag(), mediaHeadersCache, pingDesktopServer(), readJsonResponse(), registerMediaStream(), sendToTurboDownloader() (+2 more)
 
 ### Community 29 - "turbo-download-manager-windows-portable/extension/background.js"
 Cohesion: 0.22
@@ -184,16 +182,16 @@ Cohesion: 0.31
 Nodes (7): busyDownloadActions, checkServerStatus(), downloadState, escapeHtml(), formatBytes(), formatSpeed(), renderDownloads()
 
 ### Community 34 - "turbo-download-manager-extension/content.js"
-Cohesion: 0.24
-Nodes (16): addGenericMediaStream(), askWhereToDownload(), cleanPageTitle(), closeDropdown(), ensureGrabber(), escapeHtml(), getAvailableMediaStreams(), getQualityFromDimensions() (+8 more)
+Cohesion: 0.20
+Nodes (20): addGenericMediaStream(), askWhereToDownload(), cleanPageTitle(), cleanTitle(), clearStreamsForNewVideo(), closeDropdown(), ensureGrabber(), escapeHtml() (+12 more)
 
 ### Community 35 - "turbo-download-manager-windows-portable/extension/content.js"
 Cohesion: 0.20
 Nodes (20): addGenericMediaStream(), askWhereToDownload(), cleanPageTitle(), cleanTitle(), clearStreamsForNewVideo(), closeDropdown(), ensureGrabber(), escapeHtml() (+12 more)
 
 ### Community 36 - "turbo-download-manager-extension/yt-helper.js"
-Cohesion: 0.52
-Nodes (6): cleanTitle(), extractFormats(), formatBytes(), getPlayerResponse(), notifyFormats(), resolveStreamUrl()
+Cohesion: 0.40
+Nodes (9): cleanTitle(), extractFormats(), formatBytes(), getCurrentVideoId(), getCurrentVideoTitle(), getPlayerResponse(), handleVideoSwitch(), notifyFormats() (+1 more)
 
 ### Community 37 - "turbo-download-manager-windows-portable/extension/yt-helper.js"
 Cohesion: 0.40
@@ -201,27 +199,27 @@ Nodes (9): cleanTitle(), extractFormats(), formatBytes(), getCurrentVideoId(), g
 
 ### Community 39 - "turbo-download-manager-windows-portable/server.js"
 Cohesion: 0.05
-Nodes (48): appDir, projectRoot, server, categorizeInterface(), getNetworkInterfaces(), isVirtualMachineInterface(), testInterfaceConnectivity(), describeSpeedTestError() (+40 more)
+Nodes (47): appDir, projectRoot, server, crc32(), crcTable, createPNG(), iconsDir, makeChunk() (+39 more)
 
 ## Knowledge Gaps
 - **4 isolated node(s):** `@electron/packager`, `electron`, `@electron/packager`, `electron`
   These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 258 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **8 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **6 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `downloadManager` connect `downloadManager` to `turbo-download-manager-windows-portable/server.js`?**
-  _High betweenness centrality (0.016) - this node is a cross-community bridge._
+- **Why does `downloadManager` connect `downloadManager` to `server.js`, `turbo-download-manager-windows-portable/server.js`?**
+  _High betweenness centrality (0.015) - this node is a cross-community bridge._
 - **What connects `@electron/packager`, `electron`, `@electron/packager` to the rest of the system?**
   _4 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `public/app.js` be split into smaller, more focused modules?**
-  _Cohesion score 0.06901960784313725 - nodes in this community are weakly interconnected._
-- **Why does `downloadManager` connect `downloadManager` to `turbo-download-manager-windows-portable/server.js`, `turbo-download-manager-windows-portable/server.js`?**
-  _High betweenness centrality (0.016) - this node is a cross-community bridge._
+  _Cohesion score 0.05641025641025641 - nodes in this community are weakly interconnected._
+- **Why does `downloadManager` connect `downloadManager` to `turbo-download-manager-windows-portable/server.js`?**
+  _High betweenness centrality (0.015) - this node is a cross-community bridge._
 - **Should `manifest.json` be split into smaller, more focused modules?**
   _Cohesion score 0.09523809523809523 - nodes in this community are weakly interconnected._
 - **Why does `MultiInterfaceDownload` connect `MultiInterfaceDownload` to `downloadManager`, `turbo-download-manager-windows-portable/server.js`?**
   _High betweenness centrality (0.014) - this node is a cross-community bridge._
 - **Should `turbo-download-manager-windows-portable/public/app.js` be split into smaller, more focused modules?**
-  _Cohesion score 0.06901960784313725 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.05641025641025641 - nodes in this community are weakly interconnected._
