@@ -42,6 +42,7 @@ function requestWithRedirects(urlStr, options = {}, redirectCount = 0, usedDefau
     }
 
     const client = parsed.protocol === 'https:' ? https : http;
+    const isGoogleVideo = /googlevideo\.com|youtube\.com/i.test(urlStr);
     const reqOptions = {
       ...options,
       timeout: options.timeout || 30000,
@@ -49,13 +50,17 @@ function requestWithRedirects(urlStr, options = {}, redirectCount = 0, usedDefau
       port: parsed.port || (parsed.protocol === 'https:' ? 443 : 80),
       path: `${parsed.pathname}${parsed.search}`
     };
-    if (options.localAddress && !reqOptions.family) {
+
+    if (isGoogleVideo) {
+      delete reqOptions.localAddress;
+      delete reqOptions.family;
+    } else if (options.localAddress && !reqOptions.family) {
       reqOptions.family = options.localAddress.includes(':') ? 6 : 4;
     }
 
     const req = client.request(reqOptions, (res) => {
-      res.tdmLocalAddress = options.localAddress || null;
-      res.tdmUsedDefaultRoute = usedDefaultRoute;
+      res.tdmLocalAddress = isGoogleVideo ? null : (options.localAddress || null);
+      res.tdmUsedDefaultRoute = usedDefaultRoute || isGoogleVideo;
       const location = res.headers.location;
       if ([301, 302, 303, 307, 308].includes(res.statusCode) && location) {
         if (redirectCount >= 10) {
@@ -74,8 +79,11 @@ function requestWithRedirects(urlStr, options = {}, redirectCount = 0, usedDefau
       req.destroy(new Error(`Request timed out after ${Math.round((options.timeout || 30000) / 1000)} seconds`));
     });
     req.on('error', (err) => {
-      const isRouteError = err.code === 'EADDRNOTAVAIL' || err.code === 'EINVAL' || err.code === 'ENETUNREACH' || err.code === 'EHOSTUNREACH';
-      if (isRouteError && options.localAddress && !usedDefaultRoute) {
+      const isRouteOrDnsError = err.code === 'EADDRNOTAVAIL' || err.code === 'EINVAL' ||
+        err.code === 'ENETUNREACH' || err.code === 'EHOSTUNREACH' ||
+        (err.code === 'ENOTFOUND' && (options.localAddress || reqOptions.family));
+
+      if (isRouteOrDnsError && !usedDefaultRoute) {
         const { localAddress, family, ...defaultRouteOptions } = options;
         requestWithRedirects(urlStr, defaultRouteOptions, redirectCount, true).then(resolve, reject);
         return;
@@ -103,6 +111,7 @@ export function getRequestHeaders(urlStr, customHeaders = {}) {
     if (!headers['Origin'] && !headers['origin']) headers['Origin'] = 'https://www.youtube.com';
     if (!headers['Sec-Fetch-Mode'] && !headers['sec-fetch-mode']) headers['Sec-Fetch-Mode'] = 'cors';
     if (!headers['Sec-Fetch-Site'] && !headers['sec-fetch-site']) headers['Sec-Fetch-Site'] = 'cross-site';
+    if (!headers['Sec-Fetch-Dest'] && !headers['sec-fetch-dest']) headers['Sec-Fetch-Dest'] = 'video';
   }
   return headers;
 }
@@ -643,8 +652,10 @@ export class MultiInterfaceDownload {
       const targetCount = Math.max(4, this.totalConnections * 2);
       const maxCountBySize = Math.max(1, Math.floor(this.contentLength / minChunkSize));
       const initialCount = Math.max(1, Math.min(targetCount, maxCountBySize));
-      const chunkSize = Math.floor(this.contentLength / initialCount);
-      const availableInterfaces = this.interfaces.length > 0 ? this.interfaces : [{ address: null, label: 'Default Gateway' }];
+      const isGoogleVideo = /googlevideo\.com/i.test(this.url);
+      const availableInterfaces = (isGoogleVideo || this.interfaces.length === 0)
+        ? [{ address: null, label: 'Default Route' }]
+        : this.interfaces;
 
       for (let i = 0; i < initialCount; i++) {
         const assignedIface = availableInterfaces[i % availableInterfaces.length];
@@ -722,9 +733,10 @@ export class MultiInterfaceDownload {
       }
     };
 
-    // 4. Launch workers across all configured network adapters
-    const availableInterfaces = this.interfaces.length > 0 ? this.interfaces : [{ address: null }];
-    const workersPerIface = Math.max(1, this.connectionsPerInterface || 2);
+    // 4. Launch workers across configured network adapters (use default route for Google Video CDN)
+    const isGoogleVideo = /googlevideo\.com/i.test(this.url);
+    const availableInterfaces = (isGoogleVideo || this.interfaces.length === 0) ? [{ address: null }] : this.interfaces;
+    const workersPerIface = isGoogleVideo ? 4 : Math.max(1, this.connectionsPerInterface || 2);
     const workerPromises = [];
 
     for (const iface of availableInterfaces) {
@@ -930,14 +942,17 @@ export class MultiInterfaceDownload {
   }
 
   async startFallbackDownload() {
-    let route;
-    while (this.status === 'downloading' && route === undefined) {
-      const availableInterface = this.interfaces.find(iface =>
-        !this.pausedInterfaces.has(iface.address) && !this.unavailableInterfaces.has(iface.address)
-      );
-      if (availableInterface) route = availableInterface.address;
-      else if (this.allowDefaultRoute) route = this.interfaces.find(iface => !this.pausedInterfaces.has(iface.address))?.address || null;
-      else await new Promise(resolve => setTimeout(resolve, 400));
+    const isGoogleVideo = /googlevideo\.com|youtube\.com/i.test(this.url);
+    let route = null;
+    if (!isGoogleVideo) {
+      while (this.status === 'downloading' && route === null) {
+        const availableInterface = this.interfaces.find(iface =>
+          !this.pausedInterfaces.has(iface.address) && !this.unavailableInterfaces.has(iface.address)
+        );
+        if (availableInterface) route = availableInterface.address;
+        else if (this.allowDefaultRoute) route = this.interfaces.find(iface => !this.pausedInterfaces.has(iface.address))?.address || null;
+        else await new Promise(resolve => setTimeout(resolve, 400));
+      }
     }
     if (this.status !== 'downloading') return;
 
@@ -993,7 +1008,7 @@ export class MultiInterfaceDownload {
             method: 'GET',
             signal: this.abortController.signal,
             headers,
-            ...(route ? { localAddress: route, ...(!route.includes(':') ? { family: 4 } : {}) } : {})
+            ...(route && !isGoogleVideo ? { localAddress: route, ...(!route.includes(':') ? { family: 4 } : {}) } : {})
           }).then(({ response: res, finalUrl }) => {
             if (res.tdmUsedDefaultRoute && route) {
               this.allowDefaultRoute = true;

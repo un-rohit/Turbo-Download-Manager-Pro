@@ -10,7 +10,9 @@
     "activeTab",
     "tabs",
     "scripting",
-    "webRequest"
+    "webRequest",
+    "webRequestExtraHeaders",
+    "cookies"
   ],
   "host_permissions": [
     "<all_urls>",

@@ -101,6 +101,7 @@
       }
     }
     if (message.action === 'turbo:media-detected') {
+      if (!mediaGrabberEnabled) return;
       if (Array.isArray(message.streams)) {
         message.streams.forEach(addGenericMediaStream);
       } else if (message.stream && message.stream.url) {
@@ -112,11 +113,33 @@
   // -------------------------------------------------------------
   // 2. IDM-Style Video Grabber & Quality Dropdown
   // -------------------------------------------------------------
+  let mediaGrabberEnabled = true;
   let activeGrabber = null;
   let currentTargetVideo = null;
   let hideTimer = null;
   let isMouseOverGrabber = false;
   let isDropdownOpen = false;
+
+  // Sync media grabber toggle state from extension storage
+  chrome.storage.local.get(['mediaGrabberEnabled'], (res) => {
+    if (res.mediaGrabberEnabled !== undefined) {
+      mediaGrabberEnabled = res.mediaGrabberEnabled;
+      if (!mediaGrabberEnabled && activeGrabber) {
+        activeGrabber.classList.remove('is-visible');
+        closeDropdown();
+      }
+    }
+  });
+
+  chrome.storage.onChanged.addListener((changes) => {
+    if (changes.mediaGrabberEnabled !== undefined) {
+      mediaGrabberEnabled = changes.mediaGrabberEnabled.newValue !== false;
+      if (!mediaGrabberEnabled && activeGrabber) {
+        activeGrabber.classList.remove('is-visible');
+        closeDropdown();
+      }
+    }
+  });
 
   // Comprehensive YouTube itag map for 4K / 2K / 1080p / 720p / 480p / 360p / Audio
   const YOUTUBE_ITAG_MAP = {
@@ -178,16 +201,86 @@
 
   // Stream Registries
   let ytMediaData = null; // { title, videoId, duration, formats, itagMeta }
+  let currentVideoId = '';
   const genericStreams = []; // Array of { url, quality, label, format, size, type, itag, badge }
 
-  function cleanPageTitle() {
-    return document.title
+  function cleanTitle(title) {
+    return String(title || 'Video')
       .replace(/ - YouTube$/, '')
       .replace(/[\\/:*?"<>|]/g, '_')
       .replace(/\s+/g, ' ')
       .trim()
       .slice(0, 100);
   }
+
+  function cleanPageTitle() {
+    return cleanTitle(document.title);
+  }
+
+  function getActiveVideoTitle() {
+    // 1. YouTube metadata in DOM
+    try {
+      const ytH1 = document.querySelector('h1.ytd-watch-metadata yt-formatted-string, #title h1 yt-formatted-string');
+      if (ytH1 && ytH1.textContent && ytH1.textContent.trim()) {
+        return cleanTitle(ytH1.textContent.trim());
+      }
+    } catch {}
+
+    // 2. ytMediaData if matching current video
+    try {
+      const curV = new URLSearchParams(window.location.search).get('v');
+      if (ytMediaData && ytMediaData.title && (!curV || ytMediaData.videoId === curV)) {
+        return ytMediaData.title;
+      }
+    } catch {}
+
+    // 3. Fallback to page title
+    return cleanPageTitle();
+  }
+
+  function clearStreamsForNewVideo(newId, newTitle) {
+    genericStreams.length = 0;
+    ytMediaData = null;
+    currentVideoId = newId;
+
+    if (activeGrabber) {
+      const titleEl = activeGrabber.querySelector('#turboIdmTitle');
+      if (titleEl) {
+        const t = newTitle || getActiveVideoTitle();
+        titleEl.textContent = t;
+        titleEl.title = t;
+      }
+      const listEl = activeGrabber.querySelector('#turboIdmList');
+      if (listEl) {
+        listEl.innerHTML = `
+          <div class="turbo-idm-empty">
+            <p>Scanning video stream qualities...<br>Play the video to capture high-definition stream.</p>
+          </div>
+        `;
+      }
+    }
+
+    // Tell background script to wipe old streams for this tab
+    chrome.runtime.sendMessage({
+      action: 'turbo:tab-video-changed',
+      videoId: newId
+    }).catch(() => {});
+  }
+
+  window.addEventListener('TURBO_YT_VIDEO_CHANGED', (e) => {
+    const detail = e.detail || {};
+    clearStreamsForNewVideo(detail.videoId, detail.title);
+  });
+
+  // Fast polling to detect URL query parameter change (v=...)
+  setInterval(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get('v') || '';
+      if (v && v !== currentVideoId) {
+        clearStreamsForNewVideo(v, getActiveVideoTitle());
+      }
+    } catch {}
+  }, 300);
 
   function getQualityFromDimensions(w, h) {
     const maxDim = Math.max(w || 0, h || 0);
@@ -267,8 +360,27 @@
 
   // Listen for YouTube Formats emitted by yt-helper.js
   window.addEventListener('TURBO_YT_FORMATS', (e) => {
-    if (e.detail && Array.isArray(e.detail.formats) && e.detail.formats.length > 0) {
+    if (!mediaGrabberEnabled) return;
+    if (e.detail) {
+      const curV = new URLSearchParams(window.location.search).get('v') || '';
+      if (curV && e.detail.videoId && e.detail.videoId !== curV) {
+        // Discard stale formats for old video
+        return;
+      }
       ytMediaData = e.detail;
+      currentVideoId = e.detail.videoId || curV;
+
+      if (activeGrabber) {
+        const titleEl = activeGrabber.querySelector('#turboIdmTitle');
+        if (titleEl && ytMediaData.title) {
+          titleEl.textContent = ytMediaData.title;
+          titleEl.title = ytMediaData.title;
+        }
+        if (isDropdownOpen) {
+          renderDropdownItems();
+        }
+      }
+
       const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player') || document.querySelector('video');
       if (ytPlayer) {
         showGrabberFor(ytPlayer);
@@ -474,7 +586,7 @@
     const listEl = activeGrabber.querySelector('#turboIdmList');
     const titleEl = activeGrabber.querySelector('#turboIdmTitle');
 
-    const videoTitle = (ytMediaData && ytMediaData.title) ? ytMediaData.title : cleanPageTitle();
+    const videoTitle = getActiveVideoTitle();
     titleEl.textContent = videoTitle;
     titleEl.title = videoTitle;
 
@@ -725,6 +837,7 @@
   }
 
   function showGrabberFor(videoEl) {
+    if (!mediaGrabberEnabled) return;
     if (!videoEl) return;
     if (isDecorativeOrCoveredVideo(videoEl)) return;
 
@@ -766,6 +879,7 @@
   // 3. Page Video Listeners (YouTube + Generic Sites)
   // -------------------------------------------------------------
   function scanForVideos() {
+    if (!mediaGrabberEnabled) return;
     // YouTube specific player hook
     if (window.location.hostname.includes('youtube.com')) {
       const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player');

@@ -1,14 +1,20 @@
 const SERVER_URL = 'http://127.0.0.1:4820';
 let interceptEnabled = true;
+let mediaGrabberEnabled = true;
 let badgeTimer = null;
 
 // Initialize settings
 chrome.runtime.onInstalled.addListener(() => {
-  chrome.storage.local.get(['interceptEnabled'], (res) => {
+  chrome.storage.local.get(['interceptEnabled', 'mediaGrabberEnabled'], (res) => {
     if (res.interceptEnabled === undefined) {
       chrome.storage.local.set({ interceptEnabled: true });
     } else {
       interceptEnabled = res.interceptEnabled;
+    }
+    if (res.mediaGrabberEnabled === undefined) {
+      chrome.storage.local.set({ mediaGrabberEnabled: true });
+    } else {
+      mediaGrabberEnabled = res.mediaGrabberEnabled;
     }
   });
 
@@ -31,6 +37,12 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.storage.onChanged.addListener((changes) => {
   if (changes.interceptEnabled) {
     interceptEnabled = changes.interceptEnabled.newValue;
+  }
+  if (changes.mediaGrabberEnabled !== undefined) {
+    mediaGrabberEnabled = changes.mediaGrabberEnabled.newValue !== false;
+    if (!mediaGrabberEnabled) {
+      tabMediaStreams.clear();
+    }
   }
 });
 
@@ -121,13 +133,30 @@ async function sendToTurboDownloader(url, filename, options = {}) {
     // 1. Ensure Windows desktop app is running, wake it up automatically if closed!
     await ensureDesktopAppRunning();
 
+    const cachedHeaders = mediaHeadersCache.get(url) || {};
     const requestHeaders = {
-      'User-Agent': navigator.userAgent
+      'User-Agent': navigator.userAgent,
+      ...cachedHeaders
     };
     if (options.referer) requestHeaders['Referer'] = options.referer;
-    else if (/youtube\.com|googlevideo\.com/i.test(url)) requestHeaders['Referer'] = 'https://www.youtube.com/';
+    else if (/youtube\.com|googlevideo\.com/i.test(url) && !requestHeaders['Referer']) requestHeaders['Referer'] = 'https://www.youtube.com/';
     if (options.origin) requestHeaders['Origin'] = options.origin;
-    else if (/youtube\.com|googlevideo\.com/i.test(url)) requestHeaders['Origin'] = 'https://www.youtube.com';
+    else if (/youtube\.com|googlevideo\.com/i.test(url) && !requestHeaders['Origin']) requestHeaders['Origin'] = 'https://www.youtube.com';
+
+    // Ensure session cookies are forwarded for protected downloads (YouTube / Google Video CDN)
+    if (!requestHeaders['Cookie'] && !requestHeaders['cookie'] && chrome.cookies) {
+      try {
+        let cookieList = await chrome.cookies.getAll({ url });
+        if ((!cookieList || cookieList.length === 0) && /googlevideo\.com|youtube\.com/i.test(url)) {
+          cookieList = await chrome.cookies.getAll({ domain: '.youtube.com' });
+        }
+        if (cookieList && cookieList.length > 0) {
+          requestHeaders['Cookie'] = cookieList.map(c => `${c.name}=${c.value}`).join('; ');
+        }
+      } catch (cErr) {
+        console.debug('[TDM] Cookie retrieval notice:', cErr);
+      }
+    }
 
     let warning = '';
     const probeController = new AbortController();
@@ -328,7 +357,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     }).then(sendResponse);
     return true; // Keep channel open for async response
   }
+  if (request.action === 'turbo:tab-video-changed') {
+    const tabId = sender.tab ? sender.tab.id : request.tabId;
+    if (tabId) {
+      tabMediaStreams.delete(tabId);
+    }
+    sendResponse({ success: true });
+    return false;
+  }
   if (request.action === 'getTabMedia') {
+    if (!mediaGrabberEnabled) {
+      sendResponse({ streams: [] });
+      return false;
+    }
     const tabId = sender.tab ? sender.tab.id : request.tabId;
     sendResponse({ streams: tabMediaStreams.get(tabId) || [] });
     return false;
@@ -337,6 +378,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
 // 4. Universal Media Sniffer (Non-blocking webRequest observer)
 const tabMediaStreams = new Map(); // tabId -> Array of detected streams
+const mediaHeadersCache = new Map(); // cleanUrl -> headersObject
 
 function formatByteCount(value) {
   const bytes = Math.max(0, Number(value) || 0);
@@ -429,6 +471,7 @@ function getQualityLabelFromItag(itag) {
 }
 
 function registerMediaStream(tabId, rawUrl, headers = []) {
+  if (!mediaGrabberEnabled) return;
   if (tabId < 0 || !rawUrl || !/^https?:\/\//i.test(rawUrl)) return;
 
   let contentType = '';
@@ -446,22 +489,42 @@ function registerMediaStream(tabId, rawUrl, headers = []) {
 
   if (!isMediaContentType && !isMediaExtension && !isYouTubeStream) return;
 
+  // Live broadcast streams are continuous live chunk streams without a static file
+  if (rawUrl.includes('source=yt_live_broadcast') || rawUrl.includes('live=1')) return;
+
   // Clean URL to make it a full stream link (remove chunk range/buffer query parameters)
   let cleanUrl = rawUrl;
   let itag = null;
+  let ytStreamId = null;
   if (isYouTubeStream) {
     try {
       const parsed = new URL(rawUrl);
       itag = parsed.searchParams.get('itag');
+      ytStreamId = parsed.searchParams.get('id');
       parsed.searchParams.delete('range');
       parsed.searchParams.delete('rn');
       parsed.searchParams.delete('rbuf');
       parsed.searchParams.delete('sq');
       cleanUrl = parsed.toString();
     } catch {}
+
+    // Exclude SABR control streams, RPC coordination requests, and URLs missing a valid media itag
+    if (!itag || rawUrl.includes('sabr=1') || contentType.includes('yt-ump')) {
+      return;
+    }
   }
 
   let streams = tabMediaStreams.get(tabId) || [];
+
+  if (isYouTubeStream && ytStreamId) {
+    const existingWithId = streams.find(s => s.ytStreamId);
+    if (existingWithId && existingWithId.ytStreamId !== ytStreamId) {
+      // Detected new video playback stream on this tab! Flush old video streams.
+      streams = [];
+      tabMediaStreams.delete(tabId);
+    }
+  }
+
   const itagInfo = itag ? YOUTUBE_ITAG_MAP[String(itag)] : null;
   const isAudio = itagInfo?.type === 'audio' || contentType.startsWith('audio/') || (itagInfo?.format === 'M4A');
   const quality = itagInfo ? itagInfo.quality : getQualityLabelFromItag(itag);
@@ -478,6 +541,7 @@ function registerMediaStream(tabId, rawUrl, headers = []) {
     type: isAudio ? 'audio' : 'video',
     isHD: itagInfo ? itagInfo.isHD : /720|1080|1440|2160|4K|2K|HD/i.test(quality || ''),
     itag,
+    ytStreamId,
     timestamp: Date.now()
   };
 
@@ -486,33 +550,6 @@ function registerMediaStream(tabId, rawUrl, headers = []) {
     streams[existingIdx] = { ...streams[existingIdx], ...streamInfo };
   } else {
     streams.push(streamInfo);
-  }
-
-  // When a valid YouTube stream is intercepted, also synthesize standard quality options for this video
-  if (isYouTubeStream && itag) {
-    const commonItags = ['337', '315', '308', '299', '137', '136', '135', '134', '18', '140', '251'];
-    for (const cItag of commonItags) {
-      if (cItag === itag) continue;
-      const cInfo = YOUTUBE_ITAG_MAP[cItag];
-      if (!cInfo) continue;
-      const variantUrl = cleanUrl.replace(/([?&])itag=\d+/, `$1itag=${cItag}`);
-      const cAudio = cInfo.type === 'audio' || cInfo.format === 'M4A';
-      if (!streams.some(s => s.itag === cItag)) {
-        streams.push({
-          url: variantUrl,
-          contentType: cAudio ? 'audio/mp4' : 'video/mp4',
-          sizeBytes: 0,
-          size: '',
-          quality: cInfo.quality,
-          label: `${cInfo.quality} (${cInfo.format})`,
-          format: cInfo.format,
-          type: cAudio ? 'audio' : 'video',
-          isHD: cInfo.isHD,
-          itag: cItag,
-          timestamp: Date.now()
-        });
-      }
-    }
   }
 
   if (streams.length > 50) streams = streams.slice(-50);
@@ -527,6 +564,30 @@ function registerMediaStream(tabId, rawUrl, headers = []) {
 
 if (chrome.webRequest) {
   try {
+    if (chrome.webRequest.onBeforeSendHeaders) {
+      chrome.webRequest.onBeforeSendHeaders.addListener((details) => {
+        if (!details.url) return;
+        const isMedia = details.type === 'media' || details.url.includes('googlevideo.com');
+        if (isMedia) {
+          const hdrs = {};
+          if (details.requestHeaders) {
+            for (const h of details.requestHeaders) {
+              hdrs[h.name] = h.value;
+            }
+          }
+          mediaHeadersCache.set(details.url, hdrs);
+          try {
+            const parsed = new URL(details.url);
+            parsed.searchParams.delete('range');
+            parsed.searchParams.delete('rn');
+            parsed.searchParams.delete('rbuf');
+            parsed.searchParams.delete('sq');
+            mediaHeadersCache.set(parsed.toString(), hdrs);
+          } catch {}
+        }
+      }, { urls: ["*://*.googlevideo.com/*", "<all_urls>"] }, ['requestHeaders', 'extraHeaders']);
+    }
+
     if (chrome.webRequest.onBeforeRequest) {
       chrome.webRequest.onBeforeRequest.addListener((details) => {
         if (details.url && details.url.includes('googlevideo.com/videoplayback')) {
@@ -550,7 +611,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.status === 'loading') {
+  if (changeInfo.status === 'loading' || changeInfo.url) {
     tabMediaStreams.delete(tabId);
   }
 });

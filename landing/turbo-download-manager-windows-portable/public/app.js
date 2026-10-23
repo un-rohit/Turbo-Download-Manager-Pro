@@ -906,6 +906,7 @@ window.redownloadHistoryItem = async function(id) {
       url: item.url,
       filename: item.filename,
       outputDir: outputDirectoryFromPath(item.outputPath),
+      headers: item.headers || {},
       ...getDownloadInterfaceOptions(),
       connectionsPerInterface: currentSettings?.connectionsPerAdapter || 4
     });

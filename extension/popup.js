@@ -184,15 +184,25 @@ async function runDownloadAction(action, id) {
 
 document.addEventListener('DOMContentLoaded', () => {
   const chkIntercept = document.getElementById('chkIntercept');
+  const chkMediaGrabber = document.getElementById('chkMediaGrabber');
 
   // Load stored state
-  chrome.storage.local.get(['interceptEnabled'], (res) => {
+  chrome.storage.local.get(['interceptEnabled', 'mediaGrabberEnabled'], (res) => {
     chkIntercept.checked = res.interceptEnabled !== false;
+    if (chkMediaGrabber) {
+      chkMediaGrabber.checked = res.mediaGrabberEnabled !== false;
+    }
   });
 
   chkIntercept.addEventListener('change', () => {
     chrome.storage.local.set({ interceptEnabled: chkIntercept.checked });
   });
+
+  if (chkMediaGrabber) {
+    chkMediaGrabber.addEventListener('change', () => {
+      chrome.storage.local.set({ mediaGrabberEnabled: chkMediaGrabber.checked });
+    });
+  }
 
   document.getElementById('downloadList').addEventListener('click', async event => {
     const button = event.target.closest('button[data-action]');

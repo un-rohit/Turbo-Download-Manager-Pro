@@ -199,6 +199,7 @@ class DownloadManager {
           fallbackReason: snapshot.fallbackReason || null,
           status: snapshot.status,
           error: snapshot.error || null,
+          headers: task.customHeaders || null,
           completedAt: new Date().toISOString()
         };
         if (existingIdx >= 0) {
