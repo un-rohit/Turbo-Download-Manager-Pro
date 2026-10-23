@@ -374,6 +374,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ streams: tabMediaStreams.get(tabId) || [] });
     return false;
   }
+  if (request.action === 'resolveYouTube') {
+    (async () => {
+      try {
+        await ensureDesktopAppRunning();
+        const res = await fetch(`${SERVER_URL}/api/media/resolve-yt?url=${encodeURIComponent(request.url)}`);
+        const data = await readJsonResponse(res, 'YouTube Resolver');
+        sendResponse(data);
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
   if (request.action === 'turbo:reload-extension') {
     chrome.runtime.reload();
     sendResponse({ success: true });

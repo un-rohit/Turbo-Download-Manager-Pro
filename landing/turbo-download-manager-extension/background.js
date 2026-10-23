@@ -374,6 +374,19 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendResponse({ streams: tabMediaStreams.get(tabId) || [] });
     return false;
   }
+  if (request.action === 'resolveYouTube') {
+    (async () => {
+      try {
+        await ensureDesktopAppRunning();
+        const res = await fetch(`${SERVER_URL}/api/media/resolve-yt?url=${encodeURIComponent(request.url)}`);
+        const data = await readJsonResponse(res, 'YouTube Resolver');
+        sendResponse(data);
+      } catch (err) {
+        sendResponse({ success: false, error: err.message });
+      }
+    })();
+    return true;
+  }
   if (request.action === 'turbo:reload-extension') {
     chrome.runtime.reload();
     sendResponse({ success: true });
@@ -508,14 +521,13 @@ function registerMediaStream(tabId, rawUrl, headers = []) {
       itag = parsed.searchParams.get('itag');
       ytStreamId = parsed.searchParams.get('id');
       aitagsStr = parsed.searchParams.get('aitags');
-      parsed.searchParams.delete('range');
-      parsed.searchParams.delete('rn');
-      parsed.searchParams.delete('rbuf');
-      parsed.searchParams.delete('sq');
-      parsed.searchParams.delete('sabr');
-      parsed.searchParams.delete('rqh');
-      parsed.searchParams.delete('alr');
-      parsed.searchParams.delete('ump');
+      const signedParams = new Set((parsed.searchParams.get('sparams') || '').split(',').filter(Boolean));
+      // Only delete parameters that are NOT in sparams (signed parameters list)
+      ['range', 'rn', 'rbuf', 'sq', 'alr', 'ump'].forEach(p => {
+        if (!signedParams.has(p)) parsed.searchParams.delete(p);
+      });
+      if (!signedParams.has('sabr')) parsed.searchParams.delete('sabr');
+      if (!signedParams.has('rqh')) parsed.searchParams.delete('rqh');
       cleanUrl = parsed.toString();
     } catch {}
 
@@ -554,73 +566,6 @@ function registerMediaStream(tabId, rawUrl, headers = []) {
     streams.push(streamInfo);
   }
 
-  // When a valid YouTube stream is intercepted, synthesize qualities for this media type
-  if (isYouTubeStream && itag && cleanUrl) {
-    let candidateItags = [];
-    if (!isAudio) {
-      if (aitagsStr) {
-        candidateItags = aitagsStr.split(',').filter(Boolean);
-      }
-      if (candidateItags.length === 0) {
-        candidateItags = ['313', '401', '308', '271', '137', '248', '136', '247', '135', '244', '134', '243'];
-      }
-    } else {
-      candidateItags = ['140', '141', '251', '250'];
-    }
-
-    const baseHdrs = mediaHeadersCache.get(cleanUrl);
-
-    for (const cItag of candidateItags) {
-      if (cItag === itag) continue;
-      const cInfo = YOUTUBE_ITAG_MAP[cItag];
-      if (!cInfo) continue;
-
-      let variantUrl = cleanUrl;
-      try {
-        const u = new URL(cleanUrl);
-        u.searchParams.set('itag', cItag);
-        variantUrl = u.toString();
-      } catch {
-        variantUrl = cleanUrl.replace(/([?&])itag=\d+/, `$1itag=${cItag}`);
-        if (!variantUrl.includes('itag=')) {
-          variantUrl += (variantUrl.includes('?') ? '&' : '?') + `itag=${cItag}`;
-        }
-      }
-
-      if (baseHdrs) {
-        mediaHeadersCache.set(variantUrl, baseHdrs);
-      }
-
-      const cAudio = cInfo.type === 'audio' || cInfo.format === 'M4A';
-      const cQuality = cInfo.quality;
-      const cFormat = cInfo.format;
-
-      const existingVarIdx = streams.findIndex(s => s.itag === cItag);
-      const varStreamInfo = {
-        url: variantUrl,
-        contentType: cAudio ? 'audio/mp4' : (cFormat === 'WebM' ? 'video/webm' : 'video/mp4'),
-        sizeBytes: 0,
-        size: '',
-        quality: cQuality,
-        label: `${cQuality} (${cFormat})`,
-        format: cFormat,
-        type: cAudio ? 'audio' : 'video',
-        isHD: cInfo.isHD,
-        itag: cItag,
-        ytStreamId,
-        timestamp: Date.now()
-      };
-
-      if (existingVarIdx >= 0) {
-        if (!streams[existingVarIdx].sizeBytes && varStreamInfo.sizeBytes) {
-          streams[existingVarIdx] = { ...streams[existingVarIdx], ...varStreamInfo };
-        }
-      } else {
-        streams.push(varStreamInfo);
-      }
-    }
-  }
-
   if (streams.length > 50) streams = streams.slice(-50);
   tabMediaStreams.set(tabId, streams);
 
@@ -647,14 +592,12 @@ if (chrome.webRequest) {
           mediaHeadersCache.set(details.url, hdrs);
           try {
             const parsed = new URL(details.url);
-            parsed.searchParams.delete('range');
-            parsed.searchParams.delete('rn');
-            parsed.searchParams.delete('rbuf');
-            parsed.searchParams.delete('sq');
-            parsed.searchParams.delete('sabr');
-            parsed.searchParams.delete('rqh');
-            parsed.searchParams.delete('alr');
-            parsed.searchParams.delete('ump');
+            const signedParams = new Set((parsed.searchParams.get('sparams') || '').split(',').filter(Boolean));
+            ['range', 'rn', 'rbuf', 'sq', 'alr', 'ump'].forEach(p => {
+              if (!signedParams.has(p)) parsed.searchParams.delete(p);
+            });
+            if (!signedParams.has('sabr')) parsed.searchParams.delete('sabr');
+            if (!signedParams.has('rqh')) parsed.searchParams.delete('rqh');
             mediaHeadersCache.set(parsed.toString(), hdrs);
           } catch {}
 

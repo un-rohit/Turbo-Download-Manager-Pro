@@ -8,6 +8,7 @@ import { getNetworkInterfaces } from './engine/network.js';
 import { probeUrl } from './engine/downloader.js';
 import { downloadManager } from './engine/state.js';
 import { runAdapterSpeedTest } from './engine/speedtest.js';
+import { resolveYouTubeFormats, extractYouTubeVideoId } from './engine/yt-resolver.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -461,11 +462,54 @@ export async function handleRequest(req, res) {
     }
   }
 
+  // YouTube Media Formats Extractor Endpoint
+  if (url.pathname === '/api/media/resolve-yt') {
+    let targetUrl = url.searchParams.get('url');
+    if (!targetUrl && req.method === 'POST') {
+      try {
+        const body = await parseJsonBody(req);
+        targetUrl = body.url;
+      } catch {}
+    }
+    if (!targetUrl) return sendJson(res, 400, { error: 'Missing url parameter' });
+    try {
+      const data = await resolveYouTubeFormats(targetUrl);
+      return sendJson(res, 200, { success: true, ...data });
+    } catch (err) {
+      return sendJson(res, 500, { success: false, error: err.message });
+    }
+  }
+
   // URL Probe with Category Auto-Routing
   if (url.pathname === '/api/probe' && req.method === 'POST') {
     try {
       const body = await parseJsonBody(req);
       if (!body.url) return sendJson(res, 400, { error: 'Missing url parameter' });
+
+      // Automatic high-fidelity YouTube resolution for watch/shorts links
+      if (extractYouTubeVideoId(body.url)) {
+        try {
+          const ytRes = await resolveYouTubeFormats(body.url);
+          const topStream = ytRes.streams[0];
+          if (topStream) {
+            const settings = getSettings();
+            const resolved = resolveCategoryFolder(topStream.filename, settings);
+            return sendJson(res, 200, {
+              url: topStream.url,
+              resolvedMediaUrl: topStream.url,
+              filename: topStream.filename,
+              contentLength: topStream.contentLength,
+              contentType: topStream.type === 'video' ? `video/${topStream.format.toLowerCase()}` : `audio/${topStream.format.toLowerCase()}`,
+              supportsRanges: true,
+              category: resolved.category,
+              suggestedFolder: resolved.folder,
+              youtube: ytRes
+            });
+          }
+        } catch (ytErr) {
+          console.warn('[Turbo Download Manager] YouTube probe fallback:', ytErr.message);
+        }
+      }
 
       const detectedInterfaces = await getVerifiedNetworkInterfaces();
       const interfaces = Array.isArray(body.interfaces) && body.interfaces.length > 0
@@ -496,10 +540,27 @@ export async function handleRequest(req, res) {
       const body = await parseJsonBody(req);
       if (!body.url) return sendJson(res, 400, { error: 'Missing url parameter' });
 
+      let targetUrl = body.url;
+      let targetFilename = body.filename;
+
+      // Automatic resolution if a YouTube page link is directly submitted
+      if (extractYouTubeVideoId(body.url)) {
+        try {
+          const ytRes = await resolveYouTubeFormats(body.url);
+          const chosen = (body.itag ? ytRes.streams.find(s => String(s.itag) === String(body.itag)) : null) || ytRes.streams[0];
+          if (chosen) {
+            targetUrl = chosen.url;
+            if (!targetFilename) targetFilename = chosen.filename;
+          }
+        } catch (ytErr) {
+          console.warn('[Turbo Download Manager] YouTube download resolution fallback:', ytErr.message);
+        }
+      }
+
       const settings = getSettings();
       let downloadPath = body.outputDir;
       if (!downloadPath) {
-        const resolved = resolveCategoryFolder(body.filename, settings);
+        const resolved = resolveCategoryFolder(targetFilename || body.filename, settings);
         downloadPath = resolved.folder;
       }
 
@@ -525,8 +586,8 @@ export async function handleRequest(req, res) {
       }
 
       const task = downloadManager.createDownload({
-        url: body.url,
-        filename: body.filename,
+        url: targetUrl,
+        filename: targetFilename || body.filename,
         outputDir: downloadPath,
         interfaces,
         pausedInterfaces: [...requestedPaused],

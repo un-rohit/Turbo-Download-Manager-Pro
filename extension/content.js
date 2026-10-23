@@ -209,6 +209,29 @@
   let ytMediaData = null; // { title, videoId, duration, formats, itagMeta }
   let currentVideoId = '';
   const genericStreams = []; // Array of { url, quality, label, format, size, type, itag, badge }
+  let ytResolvedStreams = [];
+  let isResolvingYt = false;
+  let lastResolvedVideoId = '';
+
+  function fetchResolvedYouTubeStreams() {
+    if (!window.location.hostname.includes('youtube.com') || isResolvingYt) return;
+    const currentUrl = window.location.href;
+    if (!currentUrl.includes('/watch') && !currentUrl.includes('/shorts')) return;
+    const curV = new URLSearchParams(window.location.search).get('v');
+    if (curV && curV === lastResolvedVideoId && ytResolvedStreams.length > 0) return;
+
+    isResolvingYt = true;
+    renderDropdownItems();
+    chrome.runtime.sendMessage({ action: 'resolveYouTube', url: currentUrl }, (res) => {
+      isResolvingYt = false;
+      if (res && res.success && Array.isArray(res.streams) && res.streams.length > 0) {
+        ytResolvedStreams = res.streams;
+        lastResolvedVideoId = res.videoId || curV || '';
+        renderDropdownItems();
+        positionDropdown();
+      }
+    });
+  }
 
   function cleanTitle(title) {
     return String(title || 'Video')
@@ -247,7 +270,13 @@
   function clearStreamsForNewVideo(newId, newTitle) {
     genericStreams.length = 0;
     ytMediaData = null;
+    if (newId !== lastResolvedVideoId) {
+      ytResolvedStreams = [];
+    }
     currentVideoId = newId;
+    if (newId) {
+      fetchResolvedYouTubeStreams();
+    }
 
     const t = newTitle || getActiveVideoTitle();
     const dropdownEl = activeDropdown || activeGrabber;
@@ -542,6 +571,17 @@
     const seenUrls = new Set();
     const seenLabels = new Set();
 
+    // 0. High-Fidelity Resolved YouTube Streams from TDM Backend (4K, 2K, 1080p, 720p, 480p, 360p, Audio)
+    if (Array.isArray(ytResolvedStreams) && ytResolvedStreams.length > 0) {
+      for (const s of ytResolvedStreams) {
+        if (s.url && !seenUrls.has(s.url)) {
+          results.push({ ...s });
+          seenUrls.add(s.url);
+          seenLabels.add(s.label);
+        }
+      }
+    }
+
     // 1. YouTube Helper Formats (from internal player response)
     if (ytMediaData && Array.isArray(ytMediaData.formats)) {
       for (const f of ytMediaData.formats) {
@@ -688,9 +728,13 @@
     const streams = getAvailableMediaStreams();
 
     if (streams.length === 0) {
+      const isYt = window.location.hostname.includes('youtube.com');
+      const emptyMsg = (isYt && isResolvingYt)
+        ? '⚡ Analyzing all video qualities (4K, 1080p, 720p)...<br>Turbo Engine is fetching direct streams.'
+        : 'Scanning video stream qualities...<br>Play the video to capture high-definition stream.';
       listEl.innerHTML = `
         <div class="turbo-idm-empty">
-          <p>Scanning video stream qualities...<br>Play the video to capture high-definition stream.</p>
+          <p>${emptyMsg}</p>
         </div>
       `;
       return;
@@ -823,6 +867,9 @@
 
     // Request latest player formats from page context
     window.dispatchEvent(new CustomEvent('TURBO_REQUEST_YT_FORMATS'));
+
+    // Request direct backend resolved streams (4K, 2K, 1080p, 720p, Audio)
+    fetchResolvedYouTubeStreams();
 
     // Query latest streams from background
     chrome.runtime.sendMessage({ action: 'getTabMedia' }, (res) => {
