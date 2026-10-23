@@ -115,6 +115,8 @@
   // -------------------------------------------------------------
   let mediaGrabberEnabled = true;
   let activeGrabber = null;
+  let activeDropdown = null;
+  let activeTriggerEl = null;
   let currentTargetVideo = null;
   let hideTimer = null;
   let isMouseOverGrabber = false;
@@ -124,8 +126,10 @@
   chrome.storage.local.get(['mediaGrabberEnabled'], (res) => {
     if (res.mediaGrabberEnabled !== undefined) {
       mediaGrabberEnabled = res.mediaGrabberEnabled;
-      if (!mediaGrabberEnabled && activeGrabber) {
-        activeGrabber.classList.remove('is-visible');
+      if (!mediaGrabberEnabled) {
+        if (activeGrabber) activeGrabber.classList.remove('is-visible');
+        const ytAction = document.getElementById('turboYtActionContainer');
+        if (ytAction) ytAction.remove();
         closeDropdown();
       }
     }
@@ -134,8 +138,10 @@
   chrome.storage.onChanged.addListener((changes) => {
     if (changes.mediaGrabberEnabled !== undefined) {
       mediaGrabberEnabled = changes.mediaGrabberEnabled.newValue !== false;
-      if (!mediaGrabberEnabled && activeGrabber) {
-        activeGrabber.classList.remove('is-visible');
+      if (!mediaGrabberEnabled) {
+        if (activeGrabber) activeGrabber.classList.remove('is-visible');
+        const ytAction = document.getElementById('turboYtActionContainer');
+        if (ytAction) ytAction.remove();
         closeDropdown();
       }
     }
@@ -243,14 +249,15 @@
     ytMediaData = null;
     currentVideoId = newId;
 
-    if (activeGrabber) {
-      const titleEl = activeGrabber.querySelector('#turboIdmTitle');
+    const t = newTitle || getActiveVideoTitle();
+    const dropdownEl = activeDropdown || activeGrabber;
+    if (dropdownEl) {
+      const titleEl = dropdownEl.querySelector('#turboIdmTitle');
       if (titleEl) {
-        const t = newTitle || getActiveVideoTitle();
         titleEl.textContent = t;
         titleEl.title = t;
       }
-      const listEl = activeGrabber.querySelector('#turboIdmList');
+      const listEl = dropdownEl.querySelector('#turboIdmList');
       if (listEl) {
         listEl.innerHTML = `
           <div class="turbo-idm-empty">
@@ -259,6 +266,8 @@
         `;
       }
     }
+
+    injectYouTubeActionButton();
 
     // Tell background script to wipe old streams for this tab
     chrome.runtime.sendMessage({
@@ -379,8 +388,9 @@
         }
       }
 
-      if (activeGrabber) {
-        const titleEl = activeGrabber.querySelector('#turboIdmTitle');
+      const dropdownEl = activeDropdown || activeGrabber;
+      if (dropdownEl) {
+        const titleEl = dropdownEl.querySelector('#turboIdmTitle');
         if (titleEl && ytMediaData.title) {
           titleEl.textContent = ytMediaData.title;
           titleEl.title = ytMediaData.title;
@@ -389,6 +399,8 @@
           renderDropdownItems();
         }
       }
+
+      injectYouTubeActionButton();
 
       const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player') || document.querySelector('video');
       if (ytPlayer) {
@@ -400,6 +412,45 @@
   // Ask for YouTube formats on load
   window.dispatchEvent(new CustomEvent('TURBO_REQUEST_YT_FORMATS'));
 
+  function ensureDropdown() {
+    if (activeDropdown) return activeDropdown;
+
+    activeDropdown = document.createElement('div');
+    activeDropdown.id = 'turboIdmDropdown';
+    activeDropdown.className = 'turbo-idm-dropdown';
+    activeDropdown.innerHTML = `
+      <div class="turbo-idm-dropdown-header">
+        <div class="turbo-idm-header-top">
+          <span class="turbo-idm-brand">⚡ TDM Accelerator</span>
+          <button type="button" class="turbo-idm-close" id="turboIdmCloseBtn" title="Close">✕</button>
+        </div>
+        <div class="turbo-idm-title" id="turboIdmTitle">Video Title</div>
+      </div>
+      <div class="turbo-idm-stream-list" id="turboIdmList">
+        <div class="turbo-idm-empty">
+          <p>Scanning video stream qualities...<br>Play the video to capture high-definition stream.</p>
+        </div>
+      </div>
+    `;
+
+    const closeBtn = activeDropdown.querySelector('#turboIdmCloseBtn');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        closeDropdown();
+      });
+    }
+
+    activeDropdown.addEventListener('click', (e) => {
+      e.stopPropagation();
+    });
+
+    const mountTarget = document.fullscreenElement || document.body;
+    mountTarget.appendChild(activeDropdown);
+    return activeDropdown;
+  }
+
   function ensureGrabber() {
     if (activeGrabber) return activeGrabber;
 
@@ -409,35 +460,13 @@
       <div class="turbo-idm-btn" id="turboIdmMainBtn" title="Download Video (TDM)">
         <span class="turbo-idm-icon">⚡</span>
       </div>
-      <div class="turbo-idm-dropdown" id="turboIdmDropdown">
-        <div class="turbo-idm-dropdown-header">
-          <div class="turbo-idm-header-top">
-            <span class="turbo-idm-brand">⚡ TDM Accelerator</span>
-            <button type="button" class="turbo-idm-close" id="turboIdmCloseBtn" title="Close">✕</button>
-          </div>
-          <div class="turbo-idm-title" id="turboIdmTitle">Video Title</div>
-        </div>
-        <div class="turbo-idm-stream-list" id="turboIdmList">
-          <div class="turbo-idm-empty">
-            <p>Scanning video qualities...</p>
-          </div>
-        </div>
-      </div>
     `;
 
     const mainBtn = activeGrabber.querySelector('#turboIdmMainBtn');
-    const closeBtn = activeGrabber.querySelector('#turboIdmCloseBtn');
-
     mainBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      toggleDropdown();
-    });
-
-    closeBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      closeDropdown();
+      toggleDropdown(mainBtn);
     });
 
     activeGrabber.addEventListener('mouseenter', () => {
@@ -454,6 +483,58 @@
 
     document.body.appendChild(activeGrabber);
     return activeGrabber;
+  }
+
+  function injectYouTubeActionButton() {
+    if (!mediaGrabberEnabled) return;
+    if (!window.location.hostname.includes('youtube.com')) return;
+
+    const menu = document.querySelector('#top-level-buttons-computed, ytd-menu-renderer #top-level-buttons-computed');
+    if (!menu) return;
+
+    let container = document.getElementById('turboYtActionContainer');
+    if (container) {
+      if (menu.contains(container)) {
+        return; // already inserted in the active menu
+      }
+      container.remove();
+    }
+
+    container = document.createElement('div');
+    container.id = 'turboYtActionContainer';
+    container.className = 'turbo-yt-action-container';
+
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.id = 'turboYtActionBtn';
+    btn.className = 'turbo-yt-pill';
+    btn.title = 'Download Video (Turbo Download Manager)';
+    btn.setAttribute('aria-label', 'Download with Turbo');
+
+    const icon = document.createElement('span');
+    icon.className = 'turbo-yt-pill-icon';
+    icon.textContent = '⚡';
+
+    const text = document.createElement('span');
+    text.className = 'turbo-yt-pill-text';
+    text.textContent = 'Download';
+
+    btn.appendChild(icon);
+    btn.appendChild(text);
+    container.appendChild(btn);
+
+    btn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleDropdown(btn);
+    });
+
+    const likeBtn = menu.querySelector('segmented-like-dislike-button-view-model, ytd-segmented-like-dislike-button-renderer, :first-child');
+    if (likeBtn) {
+      menu.insertBefore(container, likeBtn);
+    } else {
+      menu.prepend(container);
+    }
   }
 
   function getAvailableMediaStreams() {
@@ -643,13 +724,17 @@
   }
 
   function renderDropdownItems() {
-    if (!activeGrabber) return;
-    const listEl = activeGrabber.querySelector('#turboIdmList');
-    const titleEl = activeGrabber.querySelector('#turboIdmTitle');
+    ensureDropdown();
+    const dropdown = activeDropdown || activeGrabber;
+    if (!dropdown) return;
+    const listEl = dropdown.querySelector('#turboIdmList');
+    const titleEl = dropdown.querySelector('#turboIdmTitle');
 
     const videoTitle = getActiveVideoTitle();
-    titleEl.textContent = videoTitle;
-    titleEl.title = videoTitle;
+    if (titleEl) {
+      titleEl.textContent = videoTitle;
+      titleEl.title = videoTitle;
+    }
 
     const streams = getAvailableMediaStreams();
 
@@ -762,18 +847,30 @@
     });
   }
 
-  function toggleDropdown() {
+  function toggleDropdown(triggerEl) {
     if (isDropdownOpen) {
+      const wasSameTrigger = !triggerEl || activeTriggerEl === triggerEl || (activeTriggerEl && triggerEl && activeTriggerEl.id === triggerEl.id);
       closeDropdown();
+      if (!wasSameTrigger) {
+        openDropdown(triggerEl);
+      }
     } else {
-      openDropdown();
+      openDropdown(triggerEl);
     }
   }
 
-  function openDropdown() {
-    ensureGrabber();
+  function openDropdown(triggerEl) {
+    ensureDropdown();
+    activeTriggerEl = triggerEl || null;
     isDropdownOpen = true;
-    activeGrabber.classList.add('is-open');
+    activeDropdown.classList.add('is-open');
+
+    if (activeGrabber && (!triggerEl || triggerEl === activeGrabber || activeGrabber.contains(triggerEl))) {
+      activeGrabber.classList.add('is-open');
+    }
+    if (triggerEl && triggerEl.classList && triggerEl.classList.contains('turbo-yt-pill')) {
+      triggerEl.classList.add('is-active');
+    }
 
     // Request latest player formats from page context
     window.dispatchEvent(new CustomEvent('TURBO_REQUEST_YT_FORMATS'));
@@ -784,15 +881,68 @@
         res.streams.forEach(addGenericMediaStream);
       }
       renderDropdownItems();
+      positionDropdown();
     });
 
     renderDropdownItems();
+    positionDropdown();
   }
 
   function closeDropdown() {
-    if (!activeGrabber) return;
+    if (activeDropdown) {
+      activeDropdown.classList.remove('is-open');
+    }
+    if (activeGrabber) {
+      activeGrabber.classList.remove('is-open');
+    }
+    const ytPill = document.querySelector('.turbo-yt-pill');
+    if (ytPill) ytPill.classList.remove('is-active');
     isDropdownOpen = false;
-    activeGrabber.classList.remove('is-open');
+    activeTriggerEl = null;
+  }
+
+  function positionDropdown() {
+    if (!isDropdownOpen || !activeDropdown) return;
+
+    const fullscreenEl = document.fullscreenElement;
+    if (fullscreenEl && activeDropdown.parentElement !== fullscreenEl) {
+      fullscreenEl.appendChild(activeDropdown);
+    } else if (!fullscreenEl && activeDropdown.parentElement !== document.body) {
+      document.body.appendChild(activeDropdown);
+    }
+
+    let trigger = activeTriggerEl;
+    if (!trigger || !document.contains(trigger)) {
+      trigger = document.getElementById('turboYtActionBtn') || activeGrabber;
+    }
+    if (!trigger) return;
+
+    const rect = trigger.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return;
+
+    const dropdownWidth = Math.min(390, window.innerWidth - 24);
+    const spaceBelow = window.innerHeight - rect.bottom;
+    const spaceAbove = rect.top;
+
+    // Decide if opening upwards or downwards
+    if (spaceBelow < 300 && spaceAbove > 260) {
+      activeDropdown.style.top = 'auto';
+      activeDropdown.style.bottom = `${Math.round(window.innerHeight - rect.top + 8)}px`;
+    } else {
+      activeDropdown.style.top = `${Math.round(rect.bottom + 8)}px`;
+      activeDropdown.style.bottom = 'auto';
+    }
+
+    // Horizontal positioning:
+    if (rect.right > window.innerWidth / 2 && (rect.left + dropdownWidth > window.innerWidth)) {
+      const rightMargin = Math.max(12, Math.round(window.innerWidth - rect.right));
+      activeDropdown.style.left = 'auto';
+      activeDropdown.style.right = `${rightMargin}px`;
+    } else {
+      const leftPos = Math.max(12, Math.min(Math.round(rect.left), window.innerWidth - dropdownWidth - 12));
+      activeDropdown.style.left = `${leftPos}px`;
+      activeDropdown.style.right = 'auto';
+    }
   }
 
   function positionGrabber(targetEl) {
@@ -906,8 +1056,11 @@
     if (isDecorativeOrCoveredVideo(videoEl)) return;
 
     if (window.location.hostname.includes('youtube.com')) {
+      injectYouTubeActionButton();
+      const isFullscreen = !!document.fullscreenElement;
+      const hasActionBtn = !!document.getElementById('turboYtActionContainer');
       const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-      if (ytPlayer) {
+      if (ytPlayer && (isFullscreen || !hasActionBtn)) {
         currentTargetVideo = ytPlayer;
         const grabber = ensureGrabber();
         positionGrabber(ytPlayer);
@@ -915,6 +1068,7 @@
         clearTimeout(hideTimer);
         return;
       }
+      return;
     }
 
     currentTargetVideo = videoEl;
@@ -946,6 +1100,7 @@
     if (!mediaGrabberEnabled) return;
     // YouTube specific player hook
     if (window.location.hostname.includes('youtube.com')) {
+      injectYouTubeActionButton();
       const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
       if (ytPlayer && !ytPlayer._turboHooked) {
         ytPlayer._turboHooked = true;
@@ -1024,19 +1179,52 @@
     }
   }, true);
 
+  // Close dropdown on click outside or escape
+  document.addEventListener('click', (e) => {
+    if (!isDropdownOpen) return;
+    if (activeDropdown && activeDropdown.contains(e.target)) return;
+    if (activeTriggerEl && activeTriggerEl.contains(e.target)) return;
+    if (activeGrabber && activeGrabber.contains(e.target)) return;
+    closeDropdown();
+  }, true);
+
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && isDropdownOpen) {
+      closeDropdown();
+    }
+  });
+
+  // SPA navigation listeners on YouTube
+  window.addEventListener('yt-navigate-finish', () => {
+    setTimeout(injectYouTubeActionButton, 300);
+  });
+  window.addEventListener('spfdone', () => {
+    setTimeout(injectYouTubeActionButton, 300);
+  });
+
   window.addEventListener('scroll', () => {
+    if (isDropdownOpen) {
+      positionDropdown();
+    }
     if (currentTargetVideo && activeGrabber && activeGrabber.classList.contains('is-visible')) {
       positionGrabber(currentTargetVideo);
     }
   }, { passive: true });
 
   window.addEventListener('resize', () => {
+    if (isDropdownOpen) {
+      positionDropdown();
+    }
     if (currentTargetVideo && activeGrabber) {
       positionGrabber(currentTargetVideo);
     }
+    injectYouTubeActionButton();
   });
 
   document.addEventListener('fullscreenchange', () => {
+    if (isDropdownOpen) {
+      positionDropdown();
+    }
     if (currentTargetVideo && activeGrabber) {
       positionGrabber(currentTargetVideo);
     }
