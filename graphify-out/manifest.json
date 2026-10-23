@@ -36,9 +36,9 @@
     "semantic_hash": ""
   },
   "extension/content.js": {
-    "mtime": 1792782881.8338928,
-    "seen": 1792783295.6973855,
-    "ast_hash": "09e65ba2cbe3a9693e8bc95ccd915c6c",
+    "mtime": 1792784445.48092,
+    "seen": 1792784596.0132961,
+    "ast_hash": "543e27be6ce67c70c1112189ff7419c5",
     "semantic_hash": ""
   },
   "extension/generate-icons.js": {
@@ -48,9 +48,9 @@
     "semantic_hash": ""
   },
   "extension/manifest.json": {
-    "mtime": 1792760278.173196,
-    "seen": 1792761131.101348,
-    "ast_hash": "d7cb4c4a0bab076912f2bd383d70833d",
+    "mtime": 1792784268.6663878,
+    "seen": 1792784596.0133011,
+    "ast_hash": "443ad2ebc6fe31feac81c2ace5e4e1f1",
     "semantic_hash": ""
   },
   "extension/popup.js": {
@@ -180,9 +180,9 @@
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-extension/content.js": {
-    "mtime": 1792782881.8338928,
-    "seen": 1792783295.6973999,
-    "ast_hash": "09e65ba2cbe3a9693e8bc95ccd915c6c",
+    "mtime": 1792784445.48092,
+    "seen": 1792784596.0133123,
+    "ast_hash": "543e27be6ce67c70c1112189ff7419c5",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-extension/generate-icons.js": {
@@ -192,9 +192,9 @@
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-extension/manifest.json": {
-    "mtime": 1792760278.173196,
-    "seen": 1792771206.7368815,
-    "ast_hash": "d7cb4c4a0bab076912f2bd383d70833d",
+    "mtime": 1792784268.6663878,
+    "seen": 1792784596.0133145,
+    "ast_hash": "443ad2ebc6fe31feac81c2ace5e4e1f1",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-extension/popup.js": {
@@ -240,9 +240,9 @@
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/extension/content.js": {
-    "mtime": 1792782881.8338928,
-    "seen": 1792783295.6974187,
-    "ast_hash": "09e65ba2cbe3a9693e8bc95ccd915c6c",
+    "mtime": 1792784445.48092,
+    "seen": 1792784596.0133336,
+    "ast_hash": "543e27be6ce67c70c1112189ff7419c5",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/extension/generate-icons.js": {
@@ -252,9 +252,9 @@
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/extension/manifest.json": {
-    "mtime": 1792760278.173196,
-    "seen": 1792761131.1014054,
-    "ast_hash": "d7cb4c4a0bab076912f2bd383d70833d",
+    "mtime": 1792784268.6663878,
+    "seen": 1792784596.013337,
+    "ast_hash": "443ad2ebc6fe31feac81c2ace5e4e1f1",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/extension/popup.js": {

@@ -1,5 +1,27 @@
 // Turbo Download Manager - Universal Media Grabber & Quality Selector (IDM Style)
 (function() {
+  function isExtensionValid() {
+    try {
+      return typeof chrome !== 'undefined' && !!chrome.runtime && !!chrome.runtime.id;
+    } catch {
+      return false;
+    }
+  }
+
+  function safeSendMessage(message, callback) {
+    if (!isExtensionValid()) return;
+    try {
+      chrome.runtime.sendMessage(message, (res) => {
+        if (chrome.runtime && chrome.runtime.lastError) {
+          return;
+        }
+        if (typeof callback === 'function') {
+          try { callback(res); } catch {}
+        }
+      });
+    } catch {}
+  }
+
   // 1. Download Interception Prompt & Toast Notification
   const activeDownloadPrompts = new Set();
 
@@ -123,29 +145,35 @@
   let isDropdownOpen = false;
 
   // Sync media grabber toggle state from extension storage
-  chrome.storage.local.get(['mediaGrabberEnabled'], (res) => {
-    if (res.mediaGrabberEnabled !== undefined) {
-      mediaGrabberEnabled = res.mediaGrabberEnabled;
-      if (!mediaGrabberEnabled) {
-        if (activeGrabber) activeGrabber.classList.remove('is-visible');
-        const ytAction = document.getElementById('turboYtActionContainer');
-        if (ytAction) ytAction.remove();
-        closeDropdown();
-      }
-    }
-  });
+  if (isExtensionValid() && chrome?.storage?.local) {
+    try {
+      chrome.storage.local.get(['mediaGrabberEnabled'], (res) => {
+        if (!isExtensionValid()) return;
+        if (res && res.mediaGrabberEnabled !== undefined) {
+          mediaGrabberEnabled = res.mediaGrabberEnabled;
+          if (!mediaGrabberEnabled) {
+            if (activeGrabber) activeGrabber.classList.remove('is-visible');
+            const ytAction = document.getElementById('turboYtActionContainer');
+            if (ytAction) ytAction.remove();
+            closeDropdown();
+          }
+        }
+      });
 
-  chrome.storage.onChanged.addListener((changes) => {
-    if (changes.mediaGrabberEnabled !== undefined) {
-      mediaGrabberEnabled = changes.mediaGrabberEnabled.newValue !== false;
-      if (!mediaGrabberEnabled) {
-        if (activeGrabber) activeGrabber.classList.remove('is-visible');
-        const ytAction = document.getElementById('turboYtActionContainer');
-        if (ytAction) ytAction.remove();
-        closeDropdown();
-      }
-    }
-  });
+      chrome.storage.onChanged.addListener((changes) => {
+        if (!isExtensionValid()) return;
+        if (changes && changes.mediaGrabberEnabled !== undefined) {
+          mediaGrabberEnabled = changes.mediaGrabberEnabled.newValue !== false;
+          if (!mediaGrabberEnabled) {
+            if (activeGrabber) activeGrabber.classList.remove('is-visible');
+            const ytAction = document.getElementById('turboYtActionContainer');
+            if (ytAction) ytAction.remove();
+            closeDropdown();
+          }
+        }
+      });
+    } catch {}
+  }
 
   // Comprehensive YouTube itag map for 4K / 2K / 1080p / 720p / 480p / 360p / Audio
   const YOUTUBE_ITAG_MAP = {
@@ -214,7 +242,7 @@
   let lastResolvedVideoId = '';
 
   function fetchResolvedYouTubeStreams() {
-    if (!window.location.hostname.includes('youtube.com') || isResolvingYt) return;
+    if (!window.location.hostname.includes('youtube.com') || isResolvingYt || !isExtensionValid()) return;
     const currentUrl = window.location.href;
     if (!currentUrl.includes('/watch') && !currentUrl.includes('/shorts')) return;
     const curV = new URLSearchParams(window.location.search).get('v');
@@ -222,7 +250,7 @@
 
     isResolvingYt = true;
     renderDropdownItems();
-    chrome.runtime.sendMessage({ action: 'resolveYouTube', url: currentUrl }, (res) => {
+    safeSendMessage({ action: 'resolveYouTube', url: currentUrl }, (res) => {
       isResolvingYt = false;
       if (res && res.success && Array.isArray(res.streams) && res.streams.length > 0) {
         ytResolvedStreams = res.streams;
@@ -299,10 +327,10 @@
     injectYouTubeActionButton();
 
     // Tell background script to wipe old streams for this tab
-    chrome.runtime.sendMessage({
+    safeSendMessage({
       action: 'turbo:tab-video-changed',
       videoId: newId
-    }).catch(() => {});
+    });
   }
 
   window.addEventListener('TURBO_YT_VIDEO_CHANGED', (e) => {
@@ -311,7 +339,11 @@
   });
 
   // Fast polling to detect URL query parameter change (v=...)
-  setInterval(() => {
+  const urlWatchTimer = setInterval(() => {
+    if (!isExtensionValid()) {
+      clearInterval(urlWatchTimer);
+      return;
+    }
     try {
       const v = new URLSearchParams(window.location.search).get('v') || '';
       if (v && v !== currentVideoId) {
@@ -818,10 +850,10 @@
         const qualSuffix = qTag ? ` [${qTag.replace(/\s+/g, '_')}]` : '';
         const finalFilename = `${videoTitle}${qualSuffix}.${ext}`;
 
-        chrome.runtime.sendMessage({
+        safeSendMessage({
           action: 'downloadUrl',
           url: stream.url,
-          filename: finalFilename,
+          filename: stream.filename || finalFilename,
           referer: window.location.href,
           origin: window.location.origin
         }, (res) => {
@@ -872,7 +904,7 @@
     fetchResolvedYouTubeStreams();
 
     // Query latest streams from background
-    chrome.runtime.sendMessage({ action: 'getTabMedia' }, (res) => {
+    safeSendMessage({ action: 'getTabMedia' }, (res) => {
       if (res && Array.isArray(res.streams)) {
         res.streams.forEach(addGenericMediaStream);
       }
@@ -1113,7 +1145,7 @@
         v._turboVideoHooked = true;
         currentTargetVideo = v;
         const syncStreams = () => {
-          chrome.runtime.sendMessage({ action: 'getTabMedia' }, (res) => {
+          safeSendMessage({ action: 'getTabMedia' }, (res) => {
             if (res && Array.isArray(res.streams)) {
               res.streams.forEach(addGenericMediaStream);
             }
@@ -1141,7 +1173,7 @@
 
       v.addEventListener('play', () => {
         // Collect detected streams in the background without popping up over forms
-        chrome.runtime.sendMessage({ action: 'getTabMedia' }, (res) => {
+        safeSendMessage({ action: 'getTabMedia' }, (res) => {
           if (res && Array.isArray(res.streams)) {
             res.streams.forEach(addGenericMediaStream);
           }
@@ -1227,11 +1259,17 @@
   });
 
   // Regular scan for dynamic SPA video insertion
-  setInterval(scanForVideos, 1500);
+  const scanInterval = setInterval(() => {
+    if (!isExtensionValid()) {
+      clearInterval(scanInterval);
+      return;
+    }
+    scanForVideos();
+  }, 1500);
   scanForVideos();
 
   // Initial getTabMedia check
-  chrome.runtime.sendMessage({ action: 'getTabMedia' }, (res) => {
+  safeSendMessage({ action: 'getTabMedia' }, (res) => {
     if (res && Array.isArray(res.streams)) {
       res.streams.forEach(addGenericMediaStream);
     }
