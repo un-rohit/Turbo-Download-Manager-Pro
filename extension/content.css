@@ -19,54 +19,38 @@
   pointer-events: auto;
 }
 
-/* The Main IDM Button */
+/* The Main IDM Button - Sleek compact lightning badge */
 .turbo-idm-btn {
   display: inline-flex;
   align-items: center;
-  gap: 7px;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border-radius: 8px;
   background: linear-gradient(135deg, rgba(10, 16, 29, 0.95), rgba(15, 23, 42, 0.96));
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  border: 1px solid rgba(0, 242, 254, 0.45);
-  border-radius: 7px;
-  padding: 6px 13px;
-  color: #f8fafc;
-  font-size: 12px;
-  font-weight: 600;
+  border: 1px solid rgba(0, 242, 254, 0.5);
   cursor: pointer;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 12px rgba(0, 242, 254, 0.2);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 12px rgba(0, 242, 254, 0.25);
   transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
-  line-height: 1.3;
+  box-sizing: border-box;
 }
 
 .turbo-idm-btn:hover {
   background: linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(22, 36, 66, 0.98));
   border-color: #00f2fe;
-  box-shadow: 0 6px 22px rgba(0, 242, 254, 0.35);
-  transform: translateY(-1px);
+  box-shadow: 0 6px 20px rgba(0, 242, 254, 0.45);
+  transform: scale(1.08);
 }
 
 .turbo-idm-icon {
   color: #00f2fe;
-  font-size: 14px;
-  filter: drop-shadow(0 0 4px rgba(0, 242, 254, 0.7));
-}
-
-.turbo-idm-text {
-  font-weight: 700;
-  letter-spacing: 0.2px;
-}
-
-.turbo-idm-arrow {
-  color: #94a3b8;
-  font-size: 10px;
-  margin-left: 2px;
-  transition: transform 0.2s ease;
-}
-
-.turbo-idm-bar.is-open .turbo-idm-arrow {
-  transform: rotate(180deg);
-  color: #00f2fe;
+  font-size: 16px;
+  filter: drop-shadow(0 0 4px rgba(0, 242, 254, 0.8));
+  line-height: 1;
+  user-select: none;
 }
 
 /* Quality Dropdown Panel */
@@ -211,6 +195,31 @@
   background: rgba(0, 242, 254, 0.15);
   color: #00f2fe;
   border: 1px solid rgba(0, 242, 254, 0.4);
+}
+
+.turbo-idm-pill.pill-4k {
+  background: linear-gradient(135deg, rgba(245, 158, 11, 0.25), rgba(239, 68, 68, 0.25)) !important;
+  color: #fbbf24 !important;
+  border: 1px solid rgba(251, 191, 36, 0.6) !important;
+  box-shadow: 0 0 8px rgba(251, 191, 36, 0.25);
+}
+
+.turbo-idm-pill.pill-2k {
+  background: rgba(168, 85, 247, 0.2) !important;
+  color: #c084fc !important;
+  border: 1px solid rgba(168, 85, 247, 0.5) !important;
+}
+
+.turbo-idm-pill.pill-1080 {
+  background: rgba(0, 242, 254, 0.18) !important;
+  color: #00f2fe !important;
+  border: 1px solid rgba(0, 242, 254, 0.5) !important;
+}
+
+.turbo-idm-pill.pill-720 {
+  background: rgba(59, 130, 246, 0.18) !important;
+  color: #60a5fa !important;
+  border: 1px solid rgba(59, 130, 246, 0.4) !important;
 }
 
 .turbo-idm-pill.sd {

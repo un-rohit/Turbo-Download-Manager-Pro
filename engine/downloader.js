@@ -86,16 +86,36 @@ function requestWithRedirects(urlStr, options = {}, redirectCount = 0, usedDefau
   });
 }
 
+const BROWSER_USER_AGENT = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+export function getRequestHeaders(urlStr, customHeaders = {}) {
+  const headers = {
+    'User-Agent': customHeaders['user-agent'] || customHeaders['User-Agent'] || BROWSER_USER_AGENT,
+    'Accept': '*/*',
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept-Encoding': 'identity',
+    ...customHeaders
+  };
+  // When streaming from YouTube or Google Video CDN, ensure appropriate Referer and Origin
+  // to avoid HTTP 403 Forbidden ("Server denied access")
+  if (/googlevideo\.com|youtube\.com/i.test(urlStr)) {
+    if (!headers['Referer'] && !headers['referer']) headers['Referer'] = 'https://www.youtube.com/';
+    if (!headers['Origin'] && !headers['origin']) headers['Origin'] = 'https://www.youtube.com';
+    if (!headers['Sec-Fetch-Mode'] && !headers['sec-fetch-mode']) headers['Sec-Fetch-Mode'] = 'cors';
+    if (!headers['Sec-Fetch-Site'] && !headers['sec-fetch-site']) headers['Sec-Fetch-Site'] = 'cross-site';
+  }
+  return headers;
+}
+
 /**
  * Downloads a file slice with a bound localAddress adapter.
  */
-function requestChunk({ urlStr, localAddress, start, end, expectedTotal, signal }) {
+function requestChunk({ urlStr, localAddress, start, end, expectedTotal, signal, customHeaders = {} }) {
   return requestWithRedirects(urlStr, {
       method: 'GET',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Range': `bytes=${start}-${end}`,
-        'Accept-Encoding': 'identity'
+        ...getRequestHeaders(urlStr, customHeaders),
+        'Range': `bytes=${start}-${end}`
       },
       signal,
       ...(localAddress ? {
@@ -129,7 +149,7 @@ function requestChunk({ urlStr, localAddress, start, end, expectedTotal, signal 
 /**
  * Probes the target resource for size, filename, and range support using Range: bytes=0-0.
  */
-export function probeUrl(urlStr) {
+export function probeUrl(urlStr, customHeaders = {}) {
   const parseFilename = (disposition, finalUrl) => {
     let filename = 'download.bin';
     const match = (disposition || '').match(/filename\*?=['"]?(?:UTF-8'')?([^'";]+)['"]?/i);
@@ -151,9 +171,8 @@ export function probeUrl(urlStr) {
   return requestWithRedirects(urlStr, {
       method: 'GET',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) TurboDownloadManager/1.0',
-        'Range': 'bytes=0-0',
-        'Accept-Encoding': 'identity'
+        ...getRequestHeaders(urlStr, customHeaders),
+        'Range': 'bytes=0-0'
       }
     }).then(({ response: res, finalUrl }) => new Promise((resolve, reject) => {
       if (res.statusCode >= 200 && res.statusCode < 300) {
@@ -190,10 +209,7 @@ export function probeUrl(urlStr) {
       res.resume();
       return requestWithRedirects(urlStr, {
         method: 'GET',
-        headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) TurboDownloadManager/1.0',
-          'Accept-Encoding': 'identity'
-        }
+        headers: getRequestHeaders(urlStr, customHeaders)
       }).then(({ response: fallbackRes, finalUrl: fallbackUrl }) => {
         if (fallbackRes.statusCode < 200 || fallbackRes.statusCode >= 300) {
           fallbackRes.resume();
@@ -230,6 +246,7 @@ export class MultiInterfaceDownload {
     this.allowDefaultRoute = options.allowDefaultRoute ?? this.interfaces.length === 0;
     this.unavailableInterfaces = new Set();
     this.totalConnections = Math.max(1, this.interfaces.length * this.connectionsPerInterface);
+    this.customHeaders = options.headers || {};
 
     this.status = 'idle'; // idle, downloading, paused, completed, error
     this.contentLength = 0;
@@ -447,7 +464,7 @@ export class MultiInterfaceDownload {
       this.notify();
 
       try {
-        const probe = await probeUrl(this.url);
+        const probe = await probeUrl(this.url, this.customHeaders);
         this.url = probe.url;
         this.contentLength = probe.contentLength;
         this.supportsRanges = probe.supportsRanges;
@@ -772,7 +789,8 @@ export class MultiInterfaceDownload {
             start: seg.currentOffset,
             end: seg.end,
             expectedTotal: this.contentLength,
-            signal: this.abortController.signal
+            signal: this.abortController.signal,
+            customHeaders: this.customHeaders
           });
           if (stream.tdmUsedDefaultRoute) {
             this.allowDefaultRoute = true;
@@ -968,8 +986,7 @@ export class MultiInterfaceDownload {
             else resolve();
           };
           const headers = {
-            'User-Agent': 'Mozilla/5.0 TurboDownloadManager/1.0',
-            'Accept-Encoding': 'identity'
+            ...getRequestHeaders(this.url, this.customHeaders)
           };
           if (resumeOffset > 0) headers.Range = `bytes=${resumeOffset}-`;
           requestWithRedirects(this.url, {

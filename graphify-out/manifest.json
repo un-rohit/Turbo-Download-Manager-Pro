@@ -1,14 +1,14 @@
 {
   "electron-main.cjs": {
-    "mtime": 1792605416.0304377,
-    "seen": 1792605444.8583386,
-    "ast_hash": "2858b3bbbb949e4406cb46099193ae1d",
+    "mtime": 1792752491.7920754,
+    "seen": 1792752585.3203337,
+    "ast_hash": "707311a795051041a5fef9b5f50d7a25",
     "semantic_hash": ""
   },
   "engine/downloader.js": {
-    "mtime": 1792705545.9688532,
-    "seen": 1792705707.7341015,
-    "ast_hash": "3c1daeb677bed21fdeb421e237df25d0",
+    "mtime": 1792748060.4751227,
+    "seen": 1792748817.2431195,
+    "ast_hash": "aceb4bbfb472b0c3d4280741ae9553a2",
     "semantic_hash": ""
   },
   "engine/network.js": {
@@ -30,15 +30,15 @@
     "semantic_hash": ""
   },
   "extension/background.js": {
-    "mtime": 1792708024.55266,
-    "seen": 1792708203.9191186,
-    "ast_hash": "17760c4c551ad5d2275c764719b7d815",
+    "mtime": 1792750785.7224355,
+    "seen": 1792752585.3203454,
+    "ast_hash": "c9a5f536146407e18d087b2bbec311e9",
     "semantic_hash": ""
   },
   "extension/content.js": {
-    "mtime": 1792708108.1676674,
-    "seen": 1792708203.9191206,
-    "ast_hash": "6f1023a2a7a922c710129630f0748bab",
+    "mtime": 1792753240.2710495,
+    "seen": 1792753321.6354213,
+    "ast_hash": "3d143fb8ec8b838f19088e10938dc174",
     "semantic_hash": ""
   },
   "extension/generate-icons.js": {
@@ -48,9 +48,9 @@
     "semantic_hash": ""
   },
   "extension/manifest.json": {
-    "mtime": 1792707989.338152,
-    "seen": 1792708203.9191234,
-    "ast_hash": "32975f101b4230431c39fea955886c20",
+    "mtime": 1792748263.4811435,
+    "seen": 1792748817.2431302,
+    "ast_hash": "78aa5b887c2969f61bdf9e64b228c45b",
     "semantic_hash": ""
   },
   "extension/popup.js": {
@@ -66,9 +66,9 @@
     "semantic_hash": ""
   },
   "package.json": {
-    "mtime": 1792534550.5978303,
-    "seen": 1792535100.3487988,
-    "ast_hash": "55198be9438bb4f263ff4192e8711046",
+    "mtime": 1792752184.1482964,
+    "seen": 1792752585.3203857,
+    "ast_hash": "31c527b2c70015cadb908ca721c75797",
     "semantic_hash": ""
   },
   "public/app.js": {
@@ -84,9 +84,9 @@
     "semantic_hash": ""
   },
   "server.js": {
-    "mtime": 1792705609.3460083,
-    "seen": 1792705707.7341506,
-    "ast_hash": "83b20d655f849e7cbd39d81664a4fff2",
+    "mtime": 1792748117.586989,
+    "seen": 1792748817.2431755,
+    "ast_hash": "2e67a9e1c781d7499d2a8967379756bf",
     "semantic_hash": ""
   },
   ".github/copilot-instructions.md": {
@@ -204,15 +204,15 @@
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/electron-main.cjs": {
-    "mtime": 1792605416.0304377,
-    "seen": 1792605444.858368,
-    "ast_hash": "2858b3bbbb949e4406cb46099193ae1d",
+    "mtime": 1792752491.7920754,
+    "seen": 1792752585.3203673,
+    "ast_hash": "707311a795051041a5fef9b5f50d7a25",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/engine/downloader.js": {
-    "mtime": 1792705545.9688532,
-    "seen": 1792705707.7341301,
-    "ast_hash": "3c1daeb677bed21fdeb421e237df25d0",
+    "mtime": 1792748060.4751227,
+    "seen": 1792748817.243148,
+    "ast_hash": "aceb4bbfb472b0c3d4280741ae9553a2",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/engine/network.js": {
@@ -234,15 +234,15 @@
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/extension/background.js": {
-    "mtime": 1792708024.55266,
-    "seen": 1792708203.9191506,
-    "ast_hash": "17760c4c551ad5d2275c764719b7d815",
+    "mtime": 1792750785.7224355,
+    "seen": 1792752585.3203738,
+    "ast_hash": "c9a5f536146407e18d087b2bbec311e9",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/extension/content.js": {
-    "mtime": 1792708108.1676674,
-    "seen": 1792708203.9191518,
-    "ast_hash": "6f1023a2a7a922c710129630f0748bab",
+    "mtime": 1792753240.2710495,
+    "seen": 1792753321.6354482,
+    "ast_hash": "3d143fb8ec8b838f19088e10938dc174",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/extension/generate-icons.js": {
@@ -252,9 +252,9 @@
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/extension/manifest.json": {
-    "mtime": 1792707989.338152,
-    "seen": 1792708203.9191544,
-    "ast_hash": "32975f101b4230431c39fea955886c20",
+    "mtime": 1792748263.4811435,
+    "seen": 1792748817.2431583,
+    "ast_hash": "78aa5b887c2969f61bdf9e64b228c45b",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/extension/popup.js": {
@@ -264,9 +264,9 @@
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/package.json": {
-    "mtime": 1792328985.750322,
-    "seen": 1792338940.4953806,
-    "ast_hash": "05b4a64dc8d9fc60785a7fd9b9d00b46",
+    "mtime": 1792752184.1482964,
+    "seen": 1792752585.3203812,
+    "ast_hash": "31c527b2c70015cadb908ca721c75797",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/public/app.js": {
@@ -282,9 +282,9 @@
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/server.js": {
-    "mtime": 1792705609.3460083,
-    "seen": 1792705707.734145,
-    "ast_hash": "83b20d655f849e7cbd39d81664a4fff2",
+    "mtime": 1792748117.586989,
+    "seen": 1792748817.2431672,
+    "ast_hash": "2e67a9e1c781d7499d2a8967379756bf",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-extension/README.md": {
@@ -372,9 +372,9 @@
     "semantic_hash": ""
   },
   "extension/yt-helper.js": {
-    "mtime": 1792707977.168001,
-    "seen": 1792708203.9191267,
-    "ast_hash": "27b4c8f3bc990046b98d2628c0c14e61",
+    "mtime": 1792749865.8779683,
+    "seen": 1792752585.3203526,
+    "ast_hash": "7c2ba6d5a5bda3cdf73356c991d644f5",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-extension/yt-helper.js": {
@@ -384,9 +384,9 @@
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/extension/yt-helper.js": {
-    "mtime": 1792707977.168001,
-    "seen": 1792708203.9191568,
-    "ast_hash": "27b4c8f3bc990046b98d2628c0c14e61",
+    "mtime": 1792749865.8779683,
+    "seen": 1792752585.32038,
+    "ast_hash": "7c2ba6d5a5bda3cdf73356c991d644f5",
     "semantic_hash": ""
   }
 }

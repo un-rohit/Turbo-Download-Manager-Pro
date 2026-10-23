@@ -45,8 +45,90 @@ async function readJsonResponse(response, endpoint) {
   }
 }
 
-async function sendToTurboDownloader(url, filename) {
+let isWakingUpApp = false;
+
+async function pingDesktopServer(timeoutMs = 1200) {
   try {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    const res = await fetch(`${SERVER_URL}/api/interfaces`, { signal: controller.signal, cache: 'no-store' });
+    clearTimeout(timer);
+    return res.ok;
+  } catch {
+    return false;
+  }
+}
+
+async function ensureDesktopAppRunning() {
+  const isRunning = await pingDesktopServer(800);
+  if (isRunning) return true;
+
+  if (isWakingUpApp) {
+    for (let i = 0; i < 15; i++) {
+      await new Promise(r => setTimeout(r, 400));
+      if (await pingDesktopServer(600)) return true;
+    }
+  }
+
+  isWakingUpApp = true;
+  try {
+    // Automatically wake up the Windows desktop application using registered turbodownload:// protocol
+    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+      const activeTab = tabs && tabs[0];
+      if (activeTab && activeTab.id) {
+        if (chrome.scripting && chrome.scripting.executeScript) {
+          chrome.scripting.executeScript({
+            target: { tabId: activeTab.id },
+            func: () => {
+              const ifr = document.createElement('iframe');
+              ifr.style.display = 'none';
+              ifr.src = 'turbodownload://open';
+              document.documentElement.appendChild(ifr);
+              setTimeout(() => ifr.remove(), 2500);
+            }
+          }).catch(() => {
+            chrome.tabs.create({ url: 'turbodownload://open', active: false }, (t) => {
+              if (t && t.id) setTimeout(() => chrome.tabs.remove(t.id).catch(() => {}), 1500);
+            });
+          });
+        } else {
+          chrome.tabs.create({ url: 'turbodownload://open', active: false }, (t) => {
+            if (t && t.id) setTimeout(() => chrome.tabs.remove(t.id).catch(() => {}), 1500);
+          });
+        }
+      } else {
+        chrome.tabs.create({ url: 'turbodownload://open', active: false }, (t) => {
+          if (t && t.id) setTimeout(() => chrome.tabs.remove(t.id).catch(() => {}), 1500);
+        });
+      }
+    });
+
+    // Wait up to 6 seconds for the desktop application to wake up and bind port 4820
+    for (let i = 0; i < 15; i++) {
+      await new Promise(r => setTimeout(r, 400));
+      if (await pingDesktopServer(600)) {
+        return true;
+      }
+    }
+    return false;
+  } finally {
+    isWakingUpApp = false;
+  }
+}
+
+async function sendToTurboDownloader(url, filename, options = {}) {
+  try {
+    // 1. Ensure Windows desktop app is running, wake it up automatically if closed!
+    await ensureDesktopAppRunning();
+
+    const requestHeaders = {
+      'User-Agent': navigator.userAgent
+    };
+    if (options.referer) requestHeaders['Referer'] = options.referer;
+    else if (/youtube\.com|googlevideo\.com/i.test(url)) requestHeaders['Referer'] = 'https://www.youtube.com/';
+    if (options.origin) requestHeaders['Origin'] = options.origin;
+    else if (/youtube\.com|googlevideo\.com/i.test(url)) requestHeaders['Origin'] = 'https://www.youtube.com';
+
     let warning = '';
     const probeController = new AbortController();
     const probeTimeout = setTimeout(() => probeController.abort(), 10000);
@@ -54,7 +136,7 @@ async function sendToTurboDownloader(url, filename) {
       const probeResponse = await fetch(`${SERVER_URL}/api/probe`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url }),
+        body: JSON.stringify({ url, headers: requestHeaders }),
         signal: probeController.signal
       });
       const probe = await readJsonResponse(probeResponse, 'Download probe');
@@ -93,7 +175,8 @@ async function sendToTurboDownloader(url, filename) {
           filename: filename || undefined,
           connectionsPerInterface: 2,
           interfaces,
-          pausedInterfaces: interfaces.filter(iface => !iface.online || iface.enabled === false).map(iface => iface.address)
+          pausedInterfaces: interfaces.filter(iface => !iface.online || iface.enabled === false).map(iface => iface.address),
+          headers: requestHeaders
         }),
         signal: downloadController.signal
       });
@@ -236,7 +319,13 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 // 3. Listen for Messages from Content Scripts / Popup
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'downloadUrl') {
-    sendToTurboDownloader(request.url, request.filename).then(sendResponse);
+    const senderUrl = sender.tab ? sender.tab.url : undefined;
+    let origin;
+    try { if (senderUrl) origin = new URL(senderUrl).origin; } catch {}
+    sendToTurboDownloader(request.url, request.filename, {
+      referer: request.referer || senderUrl,
+      origin: request.origin || origin
+    }).then(sendResponse);
     return true; // Keep channel open for async response
   }
   if (request.action === 'getTabMedia') {
@@ -262,70 +351,195 @@ function formatByteCount(value) {
   return `${size.toFixed(1)} ${unit}`;
 }
 
+const YOUTUBE_ITAG_MAP = {
+  // === 4K (2160p) & 8K ===
+  '402': { quality: '4320p 8K', format: 'MP4', isHD: true },
+  '272': { quality: '4320p 8K', format: 'WebM', isHD: true },
+  '315': { quality: '2160p 4K 60fps', format: 'WebM', isHD: true },
+  '313': { quality: '2160p 4K', format: 'WebM', isHD: true },
+  '401': { quality: '2160p 4K', format: 'MP4', isHD: true },
+  '337': { quality: '2160p 4K HDR', format: 'WebM', isHD: true },
+  '701': { quality: '2160p 4K HDR', format: 'MP4', isHD: true },
+  '138': { quality: '2160p 4K', format: 'MP4', isHD: true },
+
+  // === 1440p (2K) ===
+  '308': { quality: '1440p 2K 60fps', format: 'WebM', isHD: true },
+  '271': { quality: '1440p 2K', format: 'WebM', isHD: true },
+  '400': { quality: '1440p 2K', format: 'MP4', isHD: true },
+  '336': { quality: '1440p 2K HDR', format: 'WebM', isHD: true },
+  '700': { quality: '1440p 2K HDR', format: 'MP4', isHD: true },
+
+  // === 1080p Full HD ===
+  '299': { quality: '1080p Full HD 60fps', format: 'MP4', isHD: true },
+  '303': { quality: '1080p Full HD 60fps', format: 'WebM', isHD: true },
+  '137': { quality: '1080p Full HD', format: 'MP4', isHD: true },
+  '248': { quality: '1080p Full HD', format: 'WebM', isHD: true },
+  '399': { quality: '1080p Full HD', format: 'MP4', isHD: true },
+  '335': { quality: '1080p Full HD HDR', format: 'WebM', isHD: true },
+  '699': { quality: '1080p Full HD HDR', format: 'MP4', isHD: true },
+  '37':  { quality: '1080p Full HD', format: 'MP4', isHD: true, isMuxed: true },
+
+  // === 720p HD ===
+  '298': { quality: '720p HD 60fps', format: 'MP4', isHD: true },
+  '302': { quality: '720p HD 60fps', format: 'WebM', isHD: true },
+  '136': { quality: '720p HD', format: 'MP4', isHD: true },
+  '247': { quality: '720p HD', format: 'WebM', isHD: true },
+  '398': { quality: '720p HD', format: 'MP4', isHD: true },
+  '334': { quality: '720p HD HDR', format: 'WebM', isHD: true },
+  '698': { quality: '720p HD HDR', format: 'MP4', isHD: true },
+  '22':  { quality: '720p HD', format: 'MP4', isHD: true, isMuxed: true },
+
+  // === 480p SD ===
+  '135': { quality: '480p SD', format: 'MP4', isHD: false },
+  '244': { quality: '480p SD', format: 'WebM', isHD: false },
+  '397': { quality: '480p SD', format: 'MP4', isHD: false },
+  '333': { quality: '480p SD HDR', format: 'WebM', isHD: false },
+  '697': { quality: '480p SD HDR', format: 'MP4', isHD: false },
+
+  // === 360p SD ===
+  '18':  { quality: '360p', format: 'MP4', isHD: false, isMuxed: true },
+  '134': { quality: '360p', format: 'MP4', isHD: false },
+  '243': { quality: '360p', format: 'WebM', isHD: false },
+  '396': { quality: '360p', format: 'MP4', isHD: false },
+  '332': { quality: '360p HDR', format: 'WebM', isHD: false },
+  '696': { quality: '360p HDR', format: 'MP4', isHD: false },
+
+  // === 240p / 144p ===
+  '133': { quality: '240p', format: 'MP4', isHD: false },
+  '242': { quality: '240p', format: 'WebM', isHD: false },
+  '395': { quality: '240p', format: 'MP4', isHD: false },
+  '160': { quality: '144p', format: 'MP4', isHD: false },
+  '278': { quality: '144p', format: 'WebM', isHD: false },
+  '394': { quality: '144p', format: 'MP4', isHD: false },
+
+  // === Audio Streams ===
+  '140': { quality: 'Audio Only (M4A · 128k)', format: 'M4A', type: 'audio', isHD: false },
+  '141': { quality: 'Audio Only (M4A · 256k)', format: 'M4A', type: 'audio', isHD: false },
+  '251': { quality: 'Audio Only (WebM · 160k)', format: 'WebM', type: 'audio', isHD: false },
+  '250': { quality: 'Audio Only (WebM · 70k)', format: 'WebM', type: 'audio', isHD: false },
+  '249': { quality: 'Audio Only (WebM · 50k)', format: 'WebM', type: 'audio', isHD: false },
+  '256': { quality: 'Audio 5.1 Surround', format: 'M4A', type: 'audio', isHD: false },
+  '258': { quality: 'Audio 5.1 Surround', format: 'M4A', type: 'audio', isHD: false },
+  '328': { quality: 'Audio 5.1 Surround', format: 'M4A', type: 'audio', isHD: false }
+};
+
 function getQualityLabelFromItag(itag) {
-  const map = {
-    '18': '360p', '22': '720p HD', '37': '1080p Full HD', '38': '3072p',
-    '82': '360p 3D', '83': '480p 3D', '84': '720p 3D', '85': '1080p 3D',
-    '133': '240p', '134': '360p', '135': '480p', '136': '720p', '137': '1080p Full HD',
-    '242': '240p', '243': '360p', '244': '480p', '247': '720p', '248': '1080p Full HD',
-    '271': '1440p 2K', '313': '2160p 4K', '399': '1080p Full HD',
-    '140': 'Audio M4A (128k)', '251': 'Audio WebM (160k)'
-  };
-  return map[String(itag)] || '';
+  const info = YOUTUBE_ITAG_MAP[String(itag)];
+  return info ? info.quality : '';
 }
 
-if (chrome.webRequest && chrome.webRequest.onResponseStarted) {
+function registerMediaStream(tabId, rawUrl, headers = []) {
+  if (tabId < 0 || !rawUrl || !/^https?:\/\//i.test(rawUrl)) return;
+
+  let contentType = '';
+  let contentLength = 0;
+  for (const h of headers) {
+    const name = h.name.toLowerCase();
+    if (name === 'content-type') contentType = h.value.toLowerCase();
+    if (name === 'content-length') contentLength = parseInt(h.value, 10) || 0;
+  }
+
+  const isYouTubeStream = rawUrl.includes('googlevideo.com/videoplayback');
+  const isMediaContentType = contentType.startsWith('video/') || contentType.startsWith('audio/') ||
+    contentType.includes('mpegurl') || contentType.includes('dash+xml');
+  const isMediaExtension = /\.(mp4|webm|mkv|m4v|mov|avi|flv|m3u8|ts|mp3|m4a|aac|ogg)(\?|$)/i.test(rawUrl);
+
+  if (!isMediaContentType && !isMediaExtension && !isYouTubeStream) return;
+
+  // Clean URL to make it a full stream link (remove chunk range/buffer query parameters)
+  let cleanUrl = rawUrl;
+  let itag = null;
+  if (isYouTubeStream) {
+    try {
+      const parsed = new URL(rawUrl);
+      itag = parsed.searchParams.get('itag');
+      parsed.searchParams.delete('range');
+      parsed.searchParams.delete('rn');
+      parsed.searchParams.delete('rbuf');
+      parsed.searchParams.delete('sq');
+      cleanUrl = parsed.toString();
+    } catch {}
+  }
+
+  let streams = tabMediaStreams.get(tabId) || [];
+  const itagInfo = itag ? YOUTUBE_ITAG_MAP[String(itag)] : null;
+  const isAudio = itagInfo?.type === 'audio' || contentType.startsWith('audio/') || (itagInfo?.format === 'M4A');
+  const quality = itagInfo ? itagInfo.quality : getQualityLabelFromItag(itag);
+  const format = itagInfo ? itagInfo.format : (isAudio ? 'M4A' : 'MP4');
+
+  const streamInfo = {
+    url: cleanUrl,
+    contentType,
+    sizeBytes: contentLength,
+    size: contentLength > 1024 * 50 ? formatByteCount(contentLength) : '',
+    quality: quality || (isAudio ? 'Audio' : 'Video'),
+    label: `${quality || (isAudio ? 'Audio' : 'Video')} (${format})`,
+    format,
+    type: isAudio ? 'audio' : 'video',
+    isHD: itagInfo ? itagInfo.isHD : /720|1080|1440|2160|4K|2K|HD/i.test(quality || ''),
+    itag,
+    timestamp: Date.now()
+  };
+
+  const existingIdx = streams.findIndex(s => s.url === cleanUrl || (itag && s.itag === itag));
+  if (existingIdx >= 0) {
+    streams[existingIdx] = { ...streams[existingIdx], ...streamInfo };
+  } else {
+    streams.push(streamInfo);
+  }
+
+  // When a valid YouTube stream is intercepted, also synthesize standard quality options for this video
+  if (isYouTubeStream && itag) {
+    const commonItags = ['337', '315', '308', '299', '137', '136', '135', '134', '18', '140', '251'];
+    for (const cItag of commonItags) {
+      if (cItag === itag) continue;
+      const cInfo = YOUTUBE_ITAG_MAP[cItag];
+      if (!cInfo) continue;
+      const variantUrl = cleanUrl.replace(/([?&])itag=\d+/, `$1itag=${cItag}`);
+      const cAudio = cInfo.type === 'audio' || cInfo.format === 'M4A';
+      if (!streams.some(s => s.itag === cItag)) {
+        streams.push({
+          url: variantUrl,
+          contentType: cAudio ? 'audio/mp4' : 'video/mp4',
+          sizeBytes: 0,
+          size: '',
+          quality: cInfo.quality,
+          label: `${cInfo.quality} (${cInfo.format})`,
+          format: cInfo.format,
+          type: cAudio ? 'audio' : 'video',
+          isHD: cInfo.isHD,
+          itag: cItag,
+          timestamp: Date.now()
+        });
+      }
+    }
+  }
+
+  if (streams.length > 50) streams = streams.slice(-50);
+  tabMediaStreams.set(tabId, streams);
+
+  chrome.tabs.sendMessage(tabId, {
+    action: 'turbo:media-detected',
+    stream: streamInfo,
+    streams: streams
+  }).catch(() => {});
+}
+
+if (chrome.webRequest) {
   try {
-    chrome.webRequest.onResponseStarted.addListener((details) => {
-      if (details.tabId < 0) return;
-      const url = details.url;
-      if (!/^https?:\/\//i.test(url)) return;
-
-      let contentType = '';
-      let contentLength = 0;
-      for (const h of (details.responseHeaders || [])) {
-        const name = h.name.toLowerCase();
-        if (name === 'content-type') contentType = h.value.toLowerCase();
-        if (name === 'content-length') contentLength = parseInt(h.value, 10) || 0;
-      }
-
-      const isMediaContentType = contentType.startsWith('video/') || contentType.startsWith('audio/') ||
-        contentType.includes('mpegurl') || contentType.includes('dash+xml');
-      const isMediaExtension = /\.(mp4|webm|mkv|m4v|mov|avi|flv|m3u8|ts|mp3|m4a|aac|ogg)(\?|$)/i.test(url);
-      const isYouTubeStream = url.includes('googlevideo.com/videoplayback');
-
-      if (isMediaContentType || isMediaExtension || isYouTubeStream) {
-        let streams = tabMediaStreams.get(details.tabId) || [];
-        if (!streams.some(s => s.url === url)) {
-          let quality = '';
-          let itag = null;
-          try {
-            const parsed = new URL(url);
-            itag = parsed.searchParams.get('itag');
-            if (itag) quality = getQualityLabelFromItag(itag);
-          } catch {}
-
-          const streamInfo = {
-            url,
-            contentType,
-            sizeBytes: contentLength,
-            size: contentLength > 0 ? formatByteCount(contentLength) : '',
-            quality,
-            itag,
-            timestamp: Date.now()
-          };
-
-          streams.push(streamInfo);
-          if (streams.length > 40) streams = streams.slice(-40);
-          tabMediaStreams.set(details.tabId, streams);
-
-          chrome.tabs.sendMessage(details.tabId, {
-            action: 'turbo:media-detected',
-            stream: streamInfo
-          }).catch(() => {});
+    if (chrome.webRequest.onBeforeRequest) {
+      chrome.webRequest.onBeforeRequest.addListener((details) => {
+        if (details.url && details.url.includes('googlevideo.com/videoplayback')) {
+          registerMediaStream(details.tabId, details.url);
         }
-      }
-    }, { urls: ["<all_urls>"] }, ['responseHeaders']);
+      }, { urls: ["*://*.googlevideo.com/videoplayback*"] });
+    }
+
+    if (chrome.webRequest.onResponseStarted) {
+      chrome.webRequest.onResponseStarted.addListener((details) => {
+        registerMediaStream(details.tabId, details.url, details.responseHeaders || []);
+      }, { urls: ["<all_urls>"] }, ['responseHeaders']);
+    }
   } catch (err) {
     console.warn('[Turbo Download Manager Extension] webRequest listener setup notice:', err.message);
   }

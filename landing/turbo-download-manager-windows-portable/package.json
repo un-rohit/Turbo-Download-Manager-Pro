@@ -1,7 +1,8 @@
 {
   "name": "turbo-download-manager",
+  "productName": "Turbo Download Manager (TDM)",
   "version": "1.0.0",
-  "description": "Turbo Download Manager — Multi-Interface Hardware Channel Bonding Accelerator",
+  "description": "Turbo Download Manager (TDM) — Multi-Interface Accelerator",
   "main": "electron-main.cjs",
   "type": "module",
   "scripts": {
@@ -9,7 +10,7 @@
     "start": "node server.js",
     "app": "node bin/app.js",
     "electron": "electron .",
-    "dist": "npx @electron/packager . Turbo-Download-Manager --platform=win32 --arch=x64 --out=dist --overwrite"
+    "dist": "npx @electron/packager . Turbo-Download-Manager --platform=win32 --arch=x64 --out=dist --overwrite --icon=app.ico --ignore=^/dist --win32metadata.ProductName=\"Turbo Download Manager (TDM)\" --win32metadata.FileDescription=\"Turbo Download Manager (TDM)\" --win32metadata.CompanyName=\"Turbo Download Manager\" --win32metadata.InternalName=\"Turbo-Download-Manager\""
   },
   "devDependencies": {
     "@electron/packager": "^20.3.0",

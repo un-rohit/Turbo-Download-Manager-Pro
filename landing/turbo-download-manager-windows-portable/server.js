@@ -477,7 +477,7 @@ export async function handleRequest(req, res) {
           requestedPaused.add(iface.address);
         }
       }
-      const probe = await probeUrl(body.url);
+      const probe = await probeUrl(body.url, body.headers);
       const settings = getSettings();
       const resolved = resolveCategoryFolder(probe.filename, settings);
       return sendJson(res, 200, {
@@ -531,7 +531,8 @@ export async function handleRequest(req, res) {
         interfaces,
         pausedInterfaces: [...requestedPaused],
         allowDefaultRoute: detectedInterfaces.length === 0,
-        connectionsPerInterface: body.connectionsPerInterface || settings.connectionsPerAdapter || 4
+        connectionsPerInterface: body.connectionsPerInterface || settings.connectionsPerAdapter || 4,
+        headers: body.headers
       });
 
       return sendJson(res, 201, task.getSnapshot());

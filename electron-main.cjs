@@ -2,6 +2,21 @@ const { app, BrowserWindow, Tray, Menu, nativeImage, shell } = require('electron
 const path = require('path');
 const fs = require('fs');
 
+// Set application branding name
+app.name = 'TDM';
+if (typeof app.setName === 'function') {
+  app.setName('TDM');
+}
+
+// Register turbodownload:// custom URL protocol so browser extension can auto-launch the desktop app
+if (process.defaultApp) {
+  if (process.argv.length >= 2) {
+    app.setAsDefaultProtocolClient('turbodownload', process.execPath, [path.resolve(process.argv[1])]);
+  }
+} else {
+  app.setAsDefaultProtocolClient('turbodownload');
+}
+
 // Single instance lock to prevent duplicate processes and EADDRINUSE crashes
 const gotTheLock = app.requestSingleInstanceLock();
 
@@ -13,8 +28,8 @@ if (!gotTheLock) {
   let tray = null;
   const SERVER_URL = 'http://127.0.0.1:4820';
 
-  app.on('second-instance', () => {
-    // When user launches a second instance (e.g. clicks desktop icon), focus existing window!
+  app.on('second-instance', (event, commandLine) => {
+    // When user launches a second instance or protocol wake-up (turbodownload://open), focus existing window!
     if (mainWindow) {
       if (mainWindow.isMinimized()) mainWindow.restore();
       mainWindow.show();

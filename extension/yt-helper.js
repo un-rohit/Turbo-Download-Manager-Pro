@@ -128,7 +128,22 @@
       }
     }
 
-    if (list.length === 0) return null;
+    // Collect format metadata (itags, real sizes in bytes, resolutions)
+    const itagMeta = {};
+    for (const f of adaptive) {
+      if (f.itag) {
+        const rawBytes = f.contentLength ? parseInt(f.contentLength, 10) :
+          (f.bitrate && duration > 0 ? Math.round((f.bitrate * duration) / 8) : 0);
+        itagMeta[String(f.itag)] = {
+          itag: f.itag,
+          qualityLabel: f.qualityLabel || (f.height ? `${f.height}p` : ''),
+          contentLength: rawBytes,
+          size: rawBytes > 0 ? formatBytes(rawBytes) : '',
+          mimeType: f.mimeType || '',
+          fps: f.fps || 0
+        };
+      }
+    }
 
     // Sort order: 2160p, 1440p, 1080p, 720p, 480p, 360p, 240p, 144p, Audio
     const getRank = (item) => {
@@ -148,7 +163,8 @@
       title,
       videoId,
       duration,
-      formats: list
+      formats: list,
+      itagMeta
     };
   }
 

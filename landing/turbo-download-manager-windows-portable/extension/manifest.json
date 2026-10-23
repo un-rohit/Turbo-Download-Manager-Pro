@@ -8,6 +8,8 @@
     "contextMenus",
     "storage",
     "activeTab",
+    "tabs",
+    "scripting",
     "webRequest"
   ],
   "host_permissions": [
