@@ -1,7 +1,6 @@
-// Turbo Download Manager Floating Media Grabber (like IDM Video Download bar)
+// Turbo Download Manager - Universal Media Grabber & Quality Selector (IDM Style)
 (function() {
-  let activePanel = null;
-  let hideTimeout = null;
+  // 1. Download Interception Prompt & Toast Notification
   const activeDownloadPrompts = new Set();
 
   function positionDownloadPrompts() {
@@ -98,72 +97,431 @@
       } else if (message.canceled) {
         showDownloadToast('Download cancelled. Chrome’s downloader was not started.');
       } else {
-        showDownloadToast(`${message.filename || 'Download'} stopped: ${message.error || 'Turbo could not start it.'} Chrome’s downloader was not used.`);
+        showDownloadToast(`${message.filename || 'Download'} stopped: ${message.error || 'Turbo could not start it.'}`);
+      }
+    }
+    if (message.action === 'turbo:media-detected') {
+      if (message.stream && message.stream.url) {
+        addGenericMediaStream(message.stream);
       }
     }
   });
 
-  function createDownloadButton(mediaEl) {
-    if (activePanel) activePanel.remove();
+  // -------------------------------------------------------------
+  // 2. IDM-Style Video Grabber & Quality Dropdown
+  // -------------------------------------------------------------
+  let activeGrabber = null;
+  let currentTargetVideo = null;
+  let hideTimer = null;
+  let isMouseOverGrabber = false;
+  let isDropdownOpen = false;
 
-    const rect = mediaEl.getBoundingClientRect();
-    if (rect.width < 150 || rect.height < 100) return; // Skip tiny icons/audios
+  // Stream Registries
+  let ytMediaData = null; // { title, videoId, duration, formats }
+  const genericStreams = []; // Array of { url, quality, label, format, size, type }
 
-    const src = mediaEl.currentSrc || mediaEl.src || (mediaEl.querySelector('source') ? mediaEl.querySelector('source').src : '');
-    if (!src || src.startsWith('blob:') || src.startsWith('data:')) return;
+  function cleanPageTitle() {
+    return document.title
+      .replace(/ - YouTube$/, '')
+      .replace(/[\\/:*?"<>|]/g, '_')
+      .replace(/\s+/g, ' ')
+      .trim()
+      .slice(0, 100);
+  }
 
-    activePanel = document.createElement('div');
-    activePanel.className = 'turbo-video-grabber';
-    activePanel.innerHTML = `
-      <div class="turbo-grabber-content">
-        <span class="turbo-grabber-icon">⚡</span>
-        <span class="turbo-grabber-text">Download with Turbo Manager</span>
+  function getQualityFromDimensions(w, h) {
+    const maxDim = Math.max(w, h);
+    if (maxDim >= 3800 || h >= 2100) return '2160p 4K';
+    if (maxDim >= 2500 || h >= 1400) return '1440p 2K';
+    if (maxDim >= 1800 || h >= 1000) return '1080p Full HD';
+    if (maxDim >= 1200 || h >= 700) return '720p HD';
+    if (maxDim >= 800 || h >= 460) return '480p SD';
+    if (maxDim >= 600 || h >= 340) return '360p';
+    return 'Video';
+  }
+
+  function addGenericMediaStream(stream) {
+    if (!stream || !stream.url) return;
+    if (genericStreams.some(s => s.url === stream.url)) return;
+
+    const extMatch = stream.url.match(/\.(mp4|webm|mkv|m4v|mov|avi|flv|m3u8|ts|mp3|m4a|ogg)(\?|$)/i);
+    const ext = extMatch ? extMatch[1].toUpperCase() : (stream.contentType?.includes('audio') ? 'MP3' : 'MP4');
+    const isAudio = stream.contentType?.startsWith('audio/') || ['MP3', 'M4A', 'OGG'].includes(ext);
+
+    let quality = stream.quality || (isAudio ? 'Audio' : 'Video');
+    if (currentTargetVideo && currentTargetVideo.videoWidth > 0 && !stream.quality && !isAudio) {
+      quality = getQualityFromDimensions(currentTargetVideo.videoWidth, currentTargetVideo.videoHeight);
+    }
+
+    genericStreams.push({
+      url: stream.url,
+      quality,
+      label: `${quality} (${ext})`,
+      format: ext,
+      type: isAudio ? 'audio' : 'video',
+      isHD: /720|1080|1440|2160|4K|2K|HD/i.test(quality),
+      size: stream.size || ''
+    });
+
+    if (activeGrabber && isDropdownOpen) {
+      renderDropdownItems();
+    }
+  }
+
+  // Listen for YouTube Formats emitted by yt-helper.js
+  window.addEventListener('TURBO_YT_FORMATS', (e) => {
+    if (e.detail && Array.isArray(e.detail.formats) && e.detail.formats.length > 0) {
+      ytMediaData = e.detail;
+      const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player') || document.querySelector('video');
+      if (ytPlayer) {
+        showGrabberFor(ytPlayer);
+      }
+    }
+  });
+
+  // Ask for YouTube formats on load
+  window.dispatchEvent(new CustomEvent('TURBO_REQUEST_YT_FORMATS'));
+
+  function ensureGrabber() {
+    if (activeGrabber) return activeGrabber;
+
+    activeGrabber = document.createElement('div');
+    activeGrabber.className = 'turbo-idm-bar';
+    activeGrabber.innerHTML = `
+      <div class="turbo-idm-btn" id="turboIdmMainBtn" title="Download this video with Turbo Download Manager">
+        <span class="turbo-idm-icon">⚡</span>
+        <span class="turbo-idm-text">Download this video</span>
+        <span class="turbo-idm-arrow">▾</span>
+      </div>
+      <div class="turbo-idm-dropdown" id="turboIdmDropdown">
+        <div class="turbo-idm-dropdown-header">
+          <div class="turbo-idm-header-top">
+            <span class="turbo-idm-brand">⚡ Turbo Accelerator</span>
+            <button type="button" class="turbo-idm-close" id="turboIdmCloseBtn" title="Close">✕</button>
+          </div>
+          <div class="turbo-idm-title" id="turboIdmTitle">Video Title</div>
+        </div>
+        <div class="turbo-idm-stream-list" id="turboIdmList">
+          <div class="turbo-idm-empty">
+            <p>Scanning video qualities...</p>
+          </div>
+        </div>
       </div>
     `;
 
-    // Position top-right of media element
-    activePanel.style.top = `${window.scrollY + rect.top + 10}px`;
-    activePanel.style.left = `${window.scrollX + rect.right - 210}px`;
+    const mainBtn = activeGrabber.querySelector('#turboIdmMainBtn');
+    const closeBtn = activeGrabber.querySelector('#turboIdmCloseBtn');
 
-    activePanel.addEventListener('click', (e) => {
+    mainBtn.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
+      toggleDropdown();
+    });
 
-      const filename = document.title.replace(/[^a-zA-Z0-9_-]/g, '_').substring(0, 40) + '.mp4';
-      chrome.runtime.sendMessage({
-        action: 'downloadUrl',
-        url: src,
-        filename
-      }, (res) => {
-        if (res && res.success) {
-          activePanel.innerHTML = `<span style="color: #00f5a0">✓ Sent to Turbo Manager!</span>`;
-          setTimeout(() => activePanel?.remove(), 2000);
-        } else {
-          activePanel.innerHTML = `<span style="color: #ff3366">Failed (check app)</span>`;
+    closeBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      closeDropdown();
+    });
+
+    activeGrabber.addEventListener('mouseenter', () => {
+      isMouseOverGrabber = true;
+      clearTimeout(hideTimer);
+    });
+
+    activeGrabber.addEventListener('mouseleave', () => {
+      isMouseOverGrabber = false;
+      if (!isDropdownOpen) {
+        scheduleHide();
+      }
+    });
+
+    document.body.appendChild(activeGrabber);
+    return activeGrabber;
+  }
+
+  function getAvailableMediaStreams() {
+    if (window.location.hostname.includes('youtube.com') && ytMediaData && ytMediaData.formats) {
+      return ytMediaData.formats;
+    }
+
+    const results = [...genericStreams];
+
+    // Inspect current video element
+    if (currentTargetVideo) {
+      const src = currentTargetVideo.currentSrc || currentTargetVideo.src;
+      if (src && !src.startsWith('blob:') && !src.startsWith('data:') && !results.some(r => r.url === src)) {
+        const quality = currentTargetVideo.videoWidth > 0
+          ? getQualityFromDimensions(currentTargetVideo.videoWidth, currentTargetVideo.videoHeight)
+          : 'Original Stream';
+        results.unshift({
+          url: src,
+          quality,
+          label: `${quality} (Direct Stream)`,
+          format: 'MP4',
+          type: 'video',
+          isHD: /720|1080|1440|2160|4K|2K|HD/i.test(quality),
+          size: ''
+        });
+      }
+
+      // Inspect <source> children
+      const sources = currentTargetVideo.querySelectorAll('source');
+      sources.forEach(source => {
+        const sUrl = source.src;
+        if (sUrl && !sUrl.startsWith('blob:') && !results.some(r => r.url === sUrl)) {
+          const res = source.getAttribute('res') || source.getAttribute('size') || source.getAttribute('label') || 'MP4';
+          results.push({
+            url: sUrl,
+            quality: res,
+            label: `${res} (Source)`,
+            format: 'MP4',
+            type: 'video',
+            isHD: /720|1080|1440|2160|4K|2K|HD/i.test(res),
+            size: ''
+          });
+        }
+      });
+    }
+
+    return results;
+  }
+
+  function renderDropdownItems() {
+    if (!activeGrabber) return;
+    const listEl = activeGrabber.querySelector('#turboIdmList');
+    const titleEl = activeGrabber.querySelector('#turboIdmTitle');
+
+    const videoTitle = (ytMediaData && ytMediaData.title) ? ytMediaData.title : cleanPageTitle();
+    titleEl.textContent = videoTitle;
+    titleEl.title = videoTitle;
+
+    const streams = getAvailableMediaStreams();
+
+    if (streams.length === 0) {
+      listEl.innerHTML = `
+        <div class="turbo-idm-empty">
+          <p>No direct video stream detected yet.<br>Play the video to capture stream quality.</p>
+        </div>
+      `;
+      return;
+    }
+
+    listEl.innerHTML = streams.map((stream, idx) => {
+      const isAudio = stream.type === 'audio';
+      const pillClass = isAudio ? 'audio' : (stream.isHD ? 'hd' : 'sd');
+      const icon = isAudio ? '🎵' : '🎬';
+      const sizeText = stream.size ? `<span class="turbo-idm-size">${stream.size}</span>` : '';
+
+      return `
+        <div class="turbo-idm-row" data-index="${idx}">
+          <div class="turbo-idm-row-left">
+            <span class="turbo-idm-media-icon">${icon}</span>
+            <div class="turbo-idm-quality-info">
+              <div class="turbo-idm-quality-top">
+                <span class="turbo-idm-pill ${pillClass}">${escapeHtml(stream.quality)}</span>
+                <span class="turbo-idm-quality-label">${escapeHtml(stream.label)}</span>
+              </div>
+              <div class="turbo-idm-quality-sub">${escapeHtml(stream.format || 'MP4')}${stream.isMuxed ? ' · Video + Audio' : ''}</div>
+            </div>
+          </div>
+          <div class="turbo-idm-row-right">
+            ${sizeText}
+            <button type="button" class="turbo-idm-dl-btn" data-index="${idx}">⬇ Download</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    // Attach click events
+    listEl.querySelectorAll('.turbo-idm-row').forEach(row => {
+      row.addEventListener('click', (e) => {
+        const index = parseInt(row.getAttribute('data-index'), 10);
+        const stream = streams[index];
+        if (!stream) return;
+
+        const dlBtn = row.querySelector('.turbo-idm-dl-btn');
+        if (dlBtn) {
+          dlBtn.textContent = '⏳ Sending...';
+        }
+
+        const ext = stream.format ? stream.format.toLowerCase() : (stream.type === 'audio' ? 'm4a' : 'mp4');
+        const qualSuffix = stream.quality ? ` [${stream.quality}]` : '';
+        const finalFilename = `${videoTitle}${qualSuffix}.${ext}`;
+
+        chrome.runtime.sendMessage({
+          action: 'downloadUrl',
+          url: stream.url,
+          filename: finalFilename
+        }, (res) => {
+          if (dlBtn) {
+            if (res && res.success) {
+              dlBtn.textContent = '✓ Sent to Turbo!';
+              dlBtn.classList.add('is-success');
+              setTimeout(() => closeDropdown(), 1800);
+            } else {
+              dlBtn.textContent = 'Failed';
+              setTimeout(() => { dlBtn.textContent = '⬇ Download'; }, 2500);
+            }
+          }
+        });
+      });
+    });
+  }
+
+  function toggleDropdown() {
+    if (isDropdownOpen) {
+      closeDropdown();
+    } else {
+      openDropdown();
+    }
+  }
+
+  function openDropdown() {
+    ensureGrabber();
+    isDropdownOpen = true;
+    activeGrabber.classList.add('is-open');
+    renderDropdownItems();
+  }
+
+  function closeDropdown() {
+    if (!activeGrabber) return;
+    isDropdownOpen = false;
+    activeGrabber.classList.remove('is-open');
+  }
+
+  function positionGrabber(targetEl) {
+    if (!activeGrabber) return;
+    const fullscreenEl = document.fullscreenElement;
+
+    // In fullscreen mode, mount inside fullscreen element so it stays on top
+    if (fullscreenEl && activeGrabber.parentElement !== fullscreenEl) {
+      fullscreenEl.appendChild(activeGrabber);
+      activeGrabber.style.position = 'absolute';
+      activeGrabber.style.top = '16px';
+      activeGrabber.style.right = '16px';
+      activeGrabber.style.left = 'auto';
+      return;
+    }
+
+    if (!fullscreenEl && activeGrabber.parentElement !== document.body) {
+      document.body.appendChild(activeGrabber);
+    }
+
+    const rect = targetEl.getBoundingClientRect();
+    if (rect.width <= 0 || rect.height <= 0) return;
+
+    activeGrabber.style.position = 'absolute';
+    activeGrabber.style.top = `${window.scrollY + rect.top + 12}px`;
+    activeGrabber.style.left = `${window.scrollX + rect.right - 230}px`;
+    activeGrabber.style.right = 'auto';
+  }
+
+  function showGrabberFor(videoEl) {
+    if (!videoEl) return;
+    currentTargetVideo = videoEl;
+    const grabber = ensureGrabber();
+
+    positionGrabber(videoEl);
+    grabber.classList.add('is-visible');
+    clearTimeout(hideTimer);
+  }
+
+  function scheduleHide() {
+    clearTimeout(hideTimer);
+    hideTimer = setTimeout(() => {
+      if (!isMouseOverGrabber && !isDropdownOpen && activeGrabber) {
+        activeGrabber.classList.remove('is-visible');
+      }
+    }, 2800);
+  }
+
+  function escapeHtml(text) {
+    const div = document.createElement('div');
+    div.textContent = text || '';
+    return div.innerHTML;
+  }
+
+  // -------------------------------------------------------------
+  // 3. Page Video Listeners (YouTube + Generic Sites)
+  // -------------------------------------------------------------
+  function scanForVideos() {
+    const videos = document.querySelectorAll('video');
+    videos.forEach(v => {
+      if (v._turboHooked) return;
+      v._turboHooked = true;
+
+      v.addEventListener('mouseenter', () => {
+        showGrabberFor(v);
+      });
+
+      v.addEventListener('mouseleave', () => {
+        scheduleHide();
+      });
+
+      v.addEventListener('play', () => {
+        showGrabberFor(v);
+        // Ask background for any media streams detected on this tab
+        chrome.runtime.sendMessage({ action: 'getTabMedia' }, (res) => {
+          if (res && Array.isArray(res.streams)) {
+            res.streams.forEach(addGenericMediaStream);
+          }
+        });
+        if (window.location.hostname.includes('youtube.com')) {
+          window.dispatchEvent(new CustomEvent('TURBO_REQUEST_YT_FORMATS'));
         }
       });
     });
 
-    document.body.appendChild(activePanel);
+    // YouTube specific player hook
+    if (window.location.hostname.includes('youtube.com')) {
+      const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
+      if (ytPlayer && !ytPlayer._turboHooked) {
+        ytPlayer._turboHooked = true;
+        ytPlayer.addEventListener('mouseenter', () => {
+          showGrabberFor(ytPlayer);
+        });
+        ytPlayer.addEventListener('mouseleave', () => {
+          scheduleHide();
+        });
+      }
+    }
   }
 
   document.addEventListener('mouseover', (e) => {
     const target = e.target;
-    if (target.tagName === 'VIDEO' || target.tagName === 'AUDIO') {
-      clearTimeout(hideTimeout);
-      createDownloadButton(target);
+    if (target.tagName === 'VIDEO' || target.closest?.('#movie_player') || target.closest?.('.html5-video-player')) {
+      const v = target.tagName === 'VIDEO' ? target : target.querySelector('video') || target;
+      showGrabberFor(v);
     }
   }, true);
 
-  document.addEventListener('mouseout', (e) => {
-    const target = e.target;
-    if (target.tagName === 'VIDEO' || target.tagName === 'AUDIO') {
-      hideTimeout = setTimeout(() => {
-        if (activePanel && !activePanel.matches(':hover')) {
-          activePanel.remove();
-          activePanel = null;
-        }
-      }, 1500);
+  window.addEventListener('scroll', () => {
+    if (currentTargetVideo && activeGrabber && activeGrabber.classList.contains('is-visible')) {
+      positionGrabber(currentTargetVideo);
     }
-  }, true);
+  }, { passive: true });
+
+  window.addEventListener('resize', () => {
+    if (currentTargetVideo && activeGrabber) {
+      positionGrabber(currentTargetVideo);
+    }
+  });
+
+  document.addEventListener('fullscreenchange', () => {
+    if (currentTargetVideo && activeGrabber) {
+      positionGrabber(currentTargetVideo);
+    }
+  });
+
+  // Regular scan for dynamic SPA video insertion
+  setInterval(scanForVideos, 1500);
+  scanForVideos();
+
+  // Initial getTabMedia check
+  chrome.runtime.sendMessage({ action: 'getTabMedia' }, (res) => {
+    if (res && Array.isArray(res.streams)) {
+      res.streams.forEach(addGenericMediaStream);
+    }
+  });
 })();

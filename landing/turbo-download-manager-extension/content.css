@@ -1,37 +1,294 @@
-.turbo-video-grabber {
+/* Turbo Download Manager - IDM Style Video Download Bar & Quality Dropdown */
+
+.turbo-idm-bar {
   position: absolute;
   z-index: 2147483647;
-  background: rgba(15, 23, 42, 0.92);
-  backdrop-filter: blur(8px);
-  border: 1px solid rgba(0, 242, 254, 0.4);
-  border-radius: 8px;
-  padding: 6px 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4), 0 0 10px rgba(0, 242, 254, 0.2);
-  cursor: pointer;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  user-select: none;
+  direction: ltr;
+  text-align: left;
+  opacity: 0;
+  transform: translateY(-4px) scale(0.98);
+  pointer-events: none;
+  transition: opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1), transform 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.turbo-idm-bar.is-visible {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* The Main IDM Button */
+.turbo-idm-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  background: linear-gradient(135deg, rgba(10, 16, 29, 0.95), rgba(15, 23, 42, 0.96));
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(0, 242, 254, 0.45);
+  border-radius: 7px;
+  padding: 6px 13px;
+  color: #f8fafc;
   font-size: 12px;
   font-weight: 600;
-  color: #f8fafc;
+  cursor: pointer;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5), 0 0 12px rgba(0, 242, 254, 0.2);
+  transition: all 0.18s cubic-bezier(0.16, 1, 0.3, 1);
+  line-height: 1.3;
+}
+
+.turbo-idm-btn:hover {
+  background: linear-gradient(135deg, rgba(15, 23, 42, 0.98), rgba(22, 36, 66, 0.98));
+  border-color: #00f2fe;
+  box-shadow: 0 6px 22px rgba(0, 242, 254, 0.35);
+  transform: translateY(-1px);
+}
+
+.turbo-idm-icon {
+  color: #00f2fe;
+  font-size: 14px;
+  filter: drop-shadow(0 0 4px rgba(0, 242, 254, 0.7));
+}
+
+.turbo-idm-text {
+  font-weight: 700;
+  letter-spacing: 0.2px;
+}
+
+.turbo-idm-arrow {
+  color: #94a3b8;
+  font-size: 10px;
+  margin-left: 2px;
+  transition: transform 0.2s ease;
+}
+
+.turbo-idm-bar.is-open .turbo-idm-arrow {
+  transform: rotate(180deg);
+  color: #00f2fe;
+}
+
+/* Quality Dropdown Panel */
+.turbo-idm-dropdown {
+  display: none;
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  width: min(390px, 90vw);
+  background: rgba(10, 16, 29, 0.98);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(0, 242, 254, 0.5);
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.75), 0 0 24px rgba(0, 242, 254, 0.2);
+  overflow: hidden;
+  animation: turboDropdownIn 0.18s ease-out;
+}
+
+@keyframes turboDropdownIn {
+  from { opacity: 0; transform: translateY(-6px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.turbo-idm-bar.is-open .turbo-idm-dropdown {
+  display: block;
+}
+
+/* Header */
+.turbo-idm-dropdown-header {
+  padding: 11px 14px 9px;
+  background: rgba(15, 23, 42, 0.7);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.turbo-idm-header-top {
   display: flex;
   align-items: center;
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
-  user-select: none;
+  justify-content: space-between;
+  margin-bottom: 4px;
 }
 
-.turbo-video-grabber:hover {
-  background: rgba(30, 41, 69, 0.96);
-  border-color: #00f2fe;
-  transform: translateY(-2px);
-  box-shadow: 0 6px 20px rgba(0, 242, 254, 0.35);
+.turbo-idm-brand {
+  font-size: 11px;
+  font-weight: 700;
+  color: #00f2fe;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
 }
 
-.turbo-grabber-content {
+.turbo-idm-close {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 14px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.turbo-idm-close:hover {
+  color: #fff;
+}
+
+.turbo-idm-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f1f5f9;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+}
+
+/* Stream List */
+.turbo-idm-stream-list {
+  max-height: 270px;
+  overflow-y: auto;
+  padding: 6px 0;
+}
+
+.turbo-idm-stream-list::-webkit-scrollbar {
+  width: 5px;
+}
+
+.turbo-idm-stream-list::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 4px;
+}
+
+.turbo-idm-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 14px;
+  transition: background 0.15s ease;
+  cursor: pointer;
+}
+
+.turbo-idm-row:hover {
+  background: rgba(0, 242, 254, 0.08);
+}
+
+.turbo-idm-row-left {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex: 1;
+  min-width: 0;
+}
+
+.turbo-idm-media-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.turbo-idm-quality-info {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.turbo-idm-quality-top {
   display: flex;
   align-items: center;
   gap: 6px;
 }
 
-.turbo-grabber-icon {
+.turbo-idm-pill {
+  font-size: 10px;
+  font-weight: 800;
+  padding: 2px 6px;
+  border-radius: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.turbo-idm-pill.hd {
+  background: rgba(0, 242, 254, 0.15);
   color: #00f2fe;
-  font-size: 14px;
+  border: 1px solid rgba(0, 242, 254, 0.4);
+}
+
+.turbo-idm-pill.sd {
+  background: rgba(148, 163, 184, 0.15);
+  color: #cbd5e1;
+  border: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.turbo-idm-pill.audio {
+  background: rgba(192, 132, 252, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(192, 132, 252, 0.35);
+}
+
+.turbo-idm-quality-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #f8fafc;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.turbo-idm-quality-sub {
+  font-size: 10px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.turbo-idm-row-right {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  margin-left: 8px;
+}
+
+.turbo-idm-size {
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  color: #00f5a0;
+  font-weight: 600;
+}
+
+.turbo-idm-dl-btn {
+  background: linear-gradient(135deg, #00f2fe, #00c6ff);
+  color: #041019;
+  border: none;
+  border-radius: 5px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.turbo-idm-dl-btn:hover {
+  background: #ffffff;
+  color: #000;
+  transform: scale(1.04);
+}
+
+.turbo-idm-dl-btn.is-success {
+  background: #00f5a0 !important;
+  color: #041019 !important;
+}
+
+/* Empty State */
+.turbo-idm-empty {
+  padding: 18px 14px;
+  text-align: center;
+  color: #94a3b8;
+  font-size: 12px;
+}
+
+.turbo-idm-empty p {
+  margin: 0;
 }

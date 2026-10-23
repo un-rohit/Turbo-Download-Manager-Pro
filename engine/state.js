@@ -36,48 +36,136 @@ class DownloadManager {
     if (this.historyNeedsRepair) this.saveHistory();
     this.globalListeners = new Set();
     this.disabledInterfaces = new Set();
+    this.registerExitHandlers();
   }
 
   loadHistory() {
+    let raw = null;
     try {
       if (fs.existsSync(this.historyFile)) {
-        const saved = JSON.parse(fs.readFileSync(this.historyFile, 'utf8'));
-        if (!Array.isArray(saved)) return [];
-        if (saved.length > 50) this.historyNeedsRepair = true;
-        return saved.slice(0, 50).map((item) => {
-          if (item.status !== 'completed') return item;
-
-          let fileStat = null;
-          try {
-            const filePath = item.outputPath && path.resolve(item.outputPath);
-            if (filePath && fs.existsSync(filePath)) fileStat = fs.statSync(filePath);
-          } catch {}
-
-          const savedBytes = Number(item.downloadedBytes ?? item.contentLength) || 0;
-          const updates = {};
-          if (!item.completedAt && fileStat?.isFile()) {
-            updates.completedAt = fileStat.mtime.toISOString();
-          }
-          if (savedBytes <= 0 && fileStat?.isFile() && fileStat.size > 0) {
-            updates.contentLength = fileStat.size;
-            updates.downloadedBytes = fileStat.size;
-          } else if (savedBytes <= 0) {
-            this.historyNeedsRepair = true;
-            return { ...item, ...updates, status: 'error', downloadedBytes: 0, error: 'No file data was saved' };
-          }
-
-          if (Object.keys(updates).length) this.historyNeedsRepair = true;
-          return Object.keys(updates).length ? { ...item, ...updates } : item;
-        });
+        raw = fs.readFileSync(this.historyFile, 'utf8');
       }
     } catch {}
+
+    // If main history file is missing or corrupted, try backup
+    if (!raw) {
+      const bakFile = `${this.historyFile}.bak`;
+      try {
+        if (fs.existsSync(bakFile)) {
+          raw = fs.readFileSync(bakFile, 'utf8');
+          this.historyNeedsRepair = true;
+        }
+      } catch {}
+    }
+
+    if (raw) {
+      try {
+        const saved = JSON.parse(raw);
+        if (Array.isArray(saved)) {
+          if (saved.length > 50) this.historyNeedsRepair = true;
+          return saved.slice(0, 50).map((item) => {
+            if (item.status !== 'completed') return item;
+
+            let fileStat = null;
+            try {
+              const filePath = item.outputPath && path.resolve(item.outputPath);
+              if (filePath && fs.existsSync(filePath)) fileStat = fs.statSync(filePath);
+            } catch {}
+
+            const savedBytes = Number(item.downloadedBytes ?? item.contentLength) || 0;
+            const updates = {};
+            if (!item.completedAt && fileStat?.isFile()) {
+              updates.completedAt = fileStat.mtime.toISOString();
+            }
+            if (savedBytes <= 0 && fileStat?.isFile() && fileStat.size > 0) {
+              updates.contentLength = fileStat.size;
+              updates.downloadedBytes = fileStat.size;
+            } else if (savedBytes <= 0) {
+              this.historyNeedsRepair = true;
+              return { ...item, ...updates, status: 'error', downloadedBytes: 0, error: 'No file data was saved' };
+            }
+
+            if (Object.keys(updates).length) this.historyNeedsRepair = true;
+            return Object.keys(updates).length ? { ...item, ...updates } : item;
+          });
+        }
+      } catch {
+        // Corrupted JSON: fallback to backup file if available
+        const bakFile = `${this.historyFile}.bak`;
+        try {
+          if (fs.existsSync(bakFile)) {
+            const bakRaw = fs.readFileSync(bakFile, 'utf8');
+            const bakSaved = JSON.parse(bakRaw);
+            if (Array.isArray(bakSaved)) {
+              this.historyNeedsRepair = true;
+              return bakSaved.slice(0, 50);
+            }
+          }
+        } catch {}
+      }
+    }
     return [];
   }
 
   saveHistory() {
     try {
-      fs.writeFileSync(this.historyFile, JSON.stringify(this.history.slice(0, 50), null, 2), 'utf8');
-    } catch {}
+      const data = JSON.stringify(this.history.slice(0, 50), null, 2);
+      const tmpFile = `${this.historyFile}.tmp.${process.pid}.${Date.now()}`;
+      const bakFile = `${this.historyFile}.bak`;
+      fs.writeFileSync(tmpFile, data, 'utf8');
+      try {
+        if (fs.existsSync(this.historyFile)) {
+          fs.copyFileSync(this.historyFile, bakFile);
+        }
+      } catch {}
+      fs.renameSync(tmpFile, this.historyFile);
+    } catch {
+      try {
+        fs.writeFileSync(this.historyFile, JSON.stringify(this.history.slice(0, 50), null, 2), 'utf8');
+      } catch {}
+    }
+  }
+
+  registerExitHandlers() {
+    const handleExit = () => {
+      let hasChanges = false;
+      for (const [id, task] of this.downloads.entries()) {
+        try {
+          const snapshot = task.getSnapshot();
+          if (snapshot.status === 'downloading' || snapshot.status === 'paused' || snapshot.status === 'probing') {
+            task.pause();
+            const existingIdx = this.history.findIndex(h => h.id === snapshot.id);
+            const item = {
+              id: snapshot.id,
+              url: snapshot.url,
+              filename: snapshot.filename,
+              outputPath: snapshot.outputPath,
+              contentLength: snapshot.contentLength,
+              downloadedBytes: snapshot.downloadedBytes,
+              supportsRanges: snapshot.supportsRanges ?? null,
+              fallbackReason: snapshot.fallbackReason || null,
+              status: 'paused',
+              error: null,
+              completedAt: new Date().toISOString()
+            };
+            if (existingIdx >= 0) {
+              this.history[existingIdx] = item;
+            } else {
+              this.history.unshift(item);
+            }
+            hasChanges = true;
+          }
+        } catch {}
+      }
+      if (hasChanges) {
+        this.history = this.history.slice(0, 50);
+        this.saveHistory();
+      }
+    };
+
+    process.once('beforeExit', handleExit);
+    process.once('SIGINT', () => { handleExit(); process.exit(0); });
+    process.once('SIGTERM', () => { handleExit(); process.exit(0); });
   }
 
   onGlobalUpdate(cb) {

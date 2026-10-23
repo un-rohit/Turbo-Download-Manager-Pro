@@ -15,11 +15,16 @@ const PUBLIC_DIR = path.join(__dirname, 'public');
 const LANDING_DIR = path.join(__dirname, 'landing');
 const PORT = process.env.PORT || 4820;
 
+import { createRequire } from 'node:module';
+const require = createRequire(import.meta.url);
+
 let electronShell = null;
+let electronDialog = null;
 if (process.versions?.electron) {
   try {
-    const electron = await import('electron');
-    electronShell = electron.shell || electron.default?.shell || null;
+    const electron = require('electron');
+    electronShell = electron?.shell || null;
+    electronDialog = electron?.dialog || null;
   } catch {}
 }
 function resolveSettingsFile() {
@@ -241,7 +246,16 @@ function isPathInside(root, candidate) {
 function parseJsonBody(req) {
   return new Promise((resolve) => {
     let body = '';
-    req.on('data', chunk => { body += chunk; });
+    let size = 0;
+    const MAX_SIZE = 5 * 1024 * 1024; // 5 MB maximum payload
+    req.on('data', chunk => {
+      size += chunk.length;
+      if (size > MAX_SIZE) {
+        req.destroy();
+        return resolve({});
+      }
+      body += chunk;
+    });
     req.on('end', () => {
       try {
         const trimmed = (body || '').trim();
@@ -330,6 +344,18 @@ export async function handleRequest(req, res) {
 
   // Browse Folder Native Dialog
   if (url.pathname === '/api/browse-folder' && req.method === 'POST') {
+    if (electronDialog && typeof electronDialog.showOpenDialogSync === 'function') {
+      try {
+        const result = electronDialog.showOpenDialogSync({
+          title: 'Select Turbo Download Manager Folder',
+          properties: ['openDirectory', 'createDirectory']
+        });
+        const selected = (result && result.length > 0) ? result[0] : null;
+        return sendJson(res, 200, { path: selected });
+      } catch (e) {
+        console.warn('[Turbo Download Manager] electronDialog failed, falling back to powershell:', e.message);
+      }
+    }
     const psCmd = `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = 'Select Turbo Download Manager Folder'; $d.ShowNewFolderButton = $true; if($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){ Write-Output $d.SelectedPath }"`;
     exec(psCmd, (err, stdout) => {
       const selected = (stdout || '').trim();
@@ -340,6 +366,22 @@ export async function handleRequest(req, res) {
 
   // Browse File Native Dialog (for Antivirus Scanner, custom scripts)
   if (url.pathname === '/api/browse-file' && req.method === 'POST') {
+    if (electronDialog && typeof electronDialog.showOpenDialogSync === 'function') {
+      try {
+        const result = electronDialog.showOpenDialogSync({
+          title: 'Select Program / Executable',
+          properties: ['openFile'],
+          filters: [
+            { name: 'Executable Files (*.exe)', extensions: ['exe'] },
+            { name: 'All Files (*.*)', extensions: ['*'] }
+          ]
+        });
+        const selected = (result && result.length > 0) ? result[0] : null;
+        return sendJson(res, 200, { path: selected });
+      } catch (e) {
+        console.warn('[Turbo Download Manager] electronDialog failed, falling back to powershell:', e.message);
+      }
+    }
     const psCmd = `powershell -NoProfile -Command "Add-Type -AssemblyName System.Windows.Forms; $d = New-Object System.Windows.Forms.OpenFileDialog; $d.Title = 'Select Program / Executable'; $d.Filter = 'Executable Files (*.exe)|*.exe|All Files (*.*)|*.*'; if($d.ShowDialog() -eq [System.Windows.Forms.DialogResult]::OK){ Write-Output $d.FileName }"`;
     exec(psCmd, (err, stdout) => {
       const selected = (stdout || '').trim();

@@ -467,26 +467,50 @@ function updateGlobalSpeed() {
 
   for (const item of activeDownloads.values()) {
     if (item.status === 'downloading') {
-      totalSpeed += item.currentSpeed || 0;
+      const itemSpeed = item.currentSpeed || 0;
+      totalSpeed += itemSpeed;
       defaultRouteSpeed += item.defaultRoute?.currentSpeed || 0;
+
+      const isSingleConn = item.transferMode === 'single-connection' || item.supportsRanges === false || item.forceSingleConnection || (item.segments || []).length === 0;
+
+      let itemAttributedSpeed = 0;
       if (item.interfaces && item.interfaces.length > 0) {
         item.interfaces.forEach(iface => {
           // Ignore rates tied to old adapter addresses after DHCP or reconnect.
           if (eligibleAddresses.has(iface.address)) {
-            const ifaceSpeed = (item.interfaces.length === 1 && (!iface.currentSpeed || iface.currentSpeed === 0))
-              ? (item.currentSpeed || 0)
-              : (iface.currentSpeed || 0);
-            adapterSpeeds[iface.address] = (adapterSpeeds[iface.address] || 0) + ifaceSpeed;
+            const ifaceSpeed = iface.currentSpeed || 0;
+            if (ifaceSpeed > 0) {
+              adapterSpeeds[iface.address] = (adapterSpeeds[iface.address] || 0) + ifaceSpeed;
+              itemAttributedSpeed += ifaceSpeed;
+            }
           }
         });
+
+        // If this download is single-connection or if individual adapter telemetry is 0 while download is running:
+        if ((isSingleConn || itemAttributedSpeed === 0) && itemSpeed > 0) {
+          const targetIface = item.interfaces.find(i => eligibleAddresses.has(i.address) && !i.paused && (i.currentSpeed || 0) > 0) ||
+            item.interfaces.find(i => eligibleAddresses.has(i.address) && !i.paused) ||
+            eligibleInterfaces[0];
+          if (targetIface) {
+            const remaining = Math.max(0, itemSpeed - itemAttributedSpeed);
+            if (remaining > 0) {
+              adapterSpeeds[targetIface.address] = (adapterSpeeds[targetIface.address] || 0) + remaining;
+              itemAttributedSpeed += remaining;
+            }
+          }
+        }
+      } else if (itemSpeed > 0 && eligibleInterfaces.length > 0) {
+        const primaryAddr = eligibleInterfaces[0].address;
+        adapterSpeeds[primaryAddr] = (adapterSpeeds[primaryAddr] || 0) + itemSpeed;
       }
     }
   }
 
-  // When only 1 physical adapter is active/eligible, attribute all downloading bandwidth to it
-  if (eligibleInterfaces.length === 1 && totalSpeed > 0) {
-    const singleAddr = eligibleInterfaces[0].address;
-    adapterSpeeds[singleAddr] = Math.max(adapterSpeeds[singleAddr] || 0, totalSpeed);
+  // If totalSpeed > 0 but no individual adapter has speed recorded, attribute to primary active adapter
+  const totalAttributed = Object.values(adapterSpeeds).reduce((sum, s) => sum + (s || 0), 0);
+  if (totalSpeed > 0 && totalAttributed === 0 && eligibleInterfaces.length > 0) {
+    const primaryAddr = eligibleInterfaces[0].address;
+    adapterSpeeds[primaryAddr] = totalSpeed;
   }
 
   // Keep OS-routed bytes separate instead of inventing per-adapter rates.
@@ -574,10 +598,12 @@ function renderActiveDownloads() {
     const contribsHtml = (showDetails ? (item.interfaces || []).map((iface, idx) => {
       const isIfacePaused = !!iface.paused;
       const color = INTERFACE_COLORS[idx % INTERFACE_COLORS.length];
-      const displayedBytes = (item.interfaces.length === 1)
+      const isSingleConn = item.transferMode === 'single-connection' || item.supportsRanges === false || item.forceSingleConnection || (item.segments || []).length === 0;
+      const isPrimaryActive = !isIfacePaused && ((iface.currentSpeed || 0) > 0 || (isSingleConn && !item.interfaces.some(other => other.address !== iface.address && !other.paused && (other.currentSpeed || 0) > 0)));
+      const displayedBytes = (item.interfaces.length === 1 || (isSingleConn && isPrimaryActive))
         ? Math.max(iface.bytesDownloaded || 0, item.downloadedBytes || 0)
         : (iface.bytesDownloaded || 0);
-      const displayedSpeed = (item.interfaces.length === 1 && !isPaused && !isIfacePaused)
+      const displayedSpeed = (item.interfaces.length === 1 || (isSingleConn && isPrimaryActive)) && !isPaused && !isIfacePaused
         ? Math.max(iface.currentSpeed || 0, item.currentSpeed || 0)
         : (iface.currentSpeed || 0);
       return `
@@ -2309,13 +2335,25 @@ class QuantumEnergyFlowCanvas {
 
     // Sources mapping
     const hasCurrentSelection = ifacesToDraw.some(iface => selectedInterfaces.has(iface.address));
+    const unpausedIfaces = ifacesToDraw.filter(i => hasCurrentSelection ? selectedInterfaces.has(i.address) : i.online);
+
+    // Sum of speeds currently recorded in adapterSpeeds for unpaused interfaces
+    let totalAdapterSpeed = 0;
+    unpausedIfaces.forEach(i => { totalAdapterSpeed += (this.adapterSpeeds[i.address] || 0); });
+
     const sources = ifacesToDraw.map((iface, index) => {
       const position = this.getAdapterPosition(iface.address, index, ifaceCount, bounds);
       const isPaused = hasCurrentSelection ? !selectedInterfaces.has(iface.address) : !iface.online;
-      const unpausedIfaces = ifacesToDraw.filter(i => hasCurrentSelection ? selectedInterfaces.has(i.address) : i.online);
       let speed = isPaused ? 0 : (this.isSurgeDemo ? 22 * 1024 * 1024 : (this.adapterSpeeds[iface.address] || 0));
-      if (!isPaused && speed === 0 && unpausedIfaces.length === 1 && unpausedIfaces[0].address === iface.address && activeTotalSpeed > 0) {
-        speed = activeTotalSpeed;
+
+      // If this unpaused adapter has 0 reported speed but there is active total inflow:
+      // (e.g. single-connection download or OS default gateway traffic), attribute to the primary active adapter
+      if (!isPaused && speed === 0 && activeTotalSpeed > 0) {
+        if (totalAdapterSpeed === 0 && unpausedIfaces.length > 0 && unpausedIfaces[0].address === iface.address) {
+          speed = activeTotalSpeed;
+        } else if (unpausedIfaces.length === 1 && unpausedIfaces[0].address === iface.address) {
+          speed = activeTotalSpeed;
+        }
       }
       const now = performance.now();
       if (speed > 0) this.lastTraffic.set(iface.address, { at: now, speed });

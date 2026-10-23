@@ -239,6 +239,106 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     sendToTurboDownloader(request.url, request.filename).then(sendResponse);
     return true; // Keep channel open for async response
   }
+  if (request.action === 'getTabMedia') {
+    const tabId = sender.tab ? sender.tab.id : request.tabId;
+    sendResponse({ streams: tabMediaStreams.get(tabId) || [] });
+    return false;
+  }
+});
+
+// 4. Universal Media Sniffer (Non-blocking webRequest observer)
+const tabMediaStreams = new Map(); // tabId -> Array of detected streams
+
+function formatByteCount(value) {
+  const bytes = Math.max(0, Number(value) || 0);
+  if (bytes < 1024) return `${bytes} B`;
+  const units = ['KB', 'MB', 'GB', 'TB'];
+  let size = bytes / 1024;
+  let unit = units[0];
+  for (let index = 1; index < units.length && size >= 1024; index++) {
+    size /= 1024;
+    unit = units[index];
+  }
+  return `${size.toFixed(1)} ${unit}`;
+}
+
+function getQualityLabelFromItag(itag) {
+  const map = {
+    '18': '360p', '22': '720p HD', '37': '1080p Full HD', '38': '3072p',
+    '82': '360p 3D', '83': '480p 3D', '84': '720p 3D', '85': '1080p 3D',
+    '133': '240p', '134': '360p', '135': '480p', '136': '720p', '137': '1080p Full HD',
+    '242': '240p', '243': '360p', '244': '480p', '247': '720p', '248': '1080p Full HD',
+    '271': '1440p 2K', '313': '2160p 4K', '399': '1080p Full HD',
+    '140': 'Audio M4A (128k)', '251': 'Audio WebM (160k)'
+  };
+  return map[String(itag)] || '';
+}
+
+if (chrome.webRequest && chrome.webRequest.onResponseStarted) {
+  try {
+    chrome.webRequest.onResponseStarted.addListener((details) => {
+      if (details.tabId < 0) return;
+      const url = details.url;
+      if (!/^https?:\/\//i.test(url)) return;
+
+      let contentType = '';
+      let contentLength = 0;
+      for (const h of (details.responseHeaders || [])) {
+        const name = h.name.toLowerCase();
+        if (name === 'content-type') contentType = h.value.toLowerCase();
+        if (name === 'content-length') contentLength = parseInt(h.value, 10) || 0;
+      }
+
+      const isMediaContentType = contentType.startsWith('video/') || contentType.startsWith('audio/') ||
+        contentType.includes('mpegurl') || contentType.includes('dash+xml');
+      const isMediaExtension = /\.(mp4|webm|mkv|m4v|mov|avi|flv|m3u8|ts|mp3|m4a|aac|ogg)(\?|$)/i.test(url);
+      const isYouTubeStream = url.includes('googlevideo.com/videoplayback');
+
+      if (isMediaContentType || isMediaExtension || isYouTubeStream) {
+        let streams = tabMediaStreams.get(details.tabId) || [];
+        if (!streams.some(s => s.url === url)) {
+          let quality = '';
+          let itag = null;
+          try {
+            const parsed = new URL(url);
+            itag = parsed.searchParams.get('itag');
+            if (itag) quality = getQualityLabelFromItag(itag);
+          } catch {}
+
+          const streamInfo = {
+            url,
+            contentType,
+            sizeBytes: contentLength,
+            size: contentLength > 0 ? formatByteCount(contentLength) : '',
+            quality,
+            itag,
+            timestamp: Date.now()
+          };
+
+          streams.push(streamInfo);
+          if (streams.length > 40) streams = streams.slice(-40);
+          tabMediaStreams.set(details.tabId, streams);
+
+          chrome.tabs.sendMessage(details.tabId, {
+            action: 'turbo:media-detected',
+            stream: streamInfo
+          }).catch(() => {});
+        }
+      }
+    }, { urls: ["<all_urls>"] }, ['responseHeaders']);
+  } catch (err) {
+    console.warn('[Turbo Download Manager Extension] webRequest listener setup notice:', err.message);
+  }
+}
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  tabMediaStreams.delete(tabId);
+});
+
+chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (changeInfo.status === 'loading') {
+    tabMediaStreams.delete(tabId);
+  }
 });
 
 function showBadge(text, color) {
@@ -262,3 +362,4 @@ function showWarning(message) {
     badgeTimer = null;
   }, 12000);
 }
+

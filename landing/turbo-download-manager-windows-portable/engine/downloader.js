@@ -7,6 +7,7 @@ import { URL } from 'node:url';
 function sanitizeFilename(value) {
   const candidate = String(value || '').replace(/\\/g, '/').split('/').pop() || '';
   const sanitized = candidate
+    .replace(/^["']+|["']+$/g, '')
     .replace(/[\u0000-\u001f<>:"|?*]/g, '_')
     .trim()
     .replace(/[. ]+$/g, '')
@@ -106,14 +107,14 @@ function requestChunk({ urlStr, localAddress, start, end, expectedTotal, signal 
       const match = contentRange?.match(/^bytes\s+(\d+)-(\d+)\/(\d+|\*)$/i);
       const validRange = res.statusCode === 206 && match &&
         Number(match[1]) === start && Number(match[2]) >= start &&
-        (match[3] === '*' || Number(match[3]) === expectedTotal);
+        (match[3] === '*' || expectedTotal === 0 || Number(match[3]) === expectedTotal);
       if (!validRange) {
         const status = res.statusCode;
         // Some servers ignore Range and stream the entire file with HTTP 200.
         // Destroy that response immediately; draining it can waste gigabytes
         // for every segment before the single-connection fallback starts.
         res.destroy();
-        const resourceChanged = status === 206 && match && match[3] !== '*' && Number(match[3]) !== expectedTotal;
+        const resourceChanged = status === 206 && match && match[3] !== '*' && expectedTotal > 0 && Number(match[3]) !== expectedTotal;
         const reason = resourceChanged
           ? 'The remote file size changed during the download; restarting from the latest version'
           : status === 200
@@ -129,6 +130,24 @@ function requestChunk({ urlStr, localAddress, start, end, expectedTotal, signal 
  * Probes the target resource for size, filename, and range support using Range: bytes=0-0.
  */
 export function probeUrl(urlStr) {
+  const parseFilename = (disposition, finalUrl) => {
+    let filename = 'download.bin';
+    const match = (disposition || '').match(/filename\*?=['"]?(?:UTF-8'')?([^'";]+)['"]?/i);
+    if (match && match[1]) {
+      try {
+        filename = decodeURIComponent(match[1]);
+      } catch {
+        filename = match[1];
+      }
+    } else {
+      const basename = path.basename(new URL(finalUrl).pathname);
+      if (basename && basename.length > 0 && !basename.includes('=')) {
+        filename = basename;
+      }
+    }
+    return sanitizeFilename(filename);
+  };
+
   return requestWithRedirects(urlStr, {
       method: 'GET',
       headers: {
@@ -137,53 +156,62 @@ export function probeUrl(urlStr) {
         'Accept-Encoding': 'identity'
       }
     }).then(({ response: res, finalUrl }) => new Promise((resolve, reject) => {
-      if (res.statusCode < 200 || res.statusCode >= 300) {
-        const status = res.statusCode;
-        res.resume();
-        return reject(new Error(`Server returned HTTP ${status} while probing download URL`));
-      }
-      let contentLength = 0;
-      let supportsRanges = false;
+      if (res.statusCode >= 200 && res.statusCode < 300) {
+        let contentLength = 0;
+        let supportsRanges = false;
 
-      const contentRange = res.headers['content-range'];
-      if (contentRange) {
-        const match = contentRange.match(/\/(\d+|\*)/);
-        if (match && match[1] !== '*') {
-          contentLength = parseInt(match[1], 10);
-          supportsRanges = res.statusCode === 206 && contentLength > 0;
+        const contentRange = res.headers['content-range'];
+        if (contentRange) {
+          const match = contentRange.match(/\/(\d+|\*)/);
+          if (match && match[1] !== '*') {
+            contentLength = parseInt(match[1], 10);
+            supportsRanges = res.statusCode === 206 && contentLength > 0;
+          }
         }
-      }
-      if (res.statusCode !== 206) {
-        contentLength = parseInt(res.headers['content-length'] || '0', 10);
-      }
-
-      const disposition = res.headers['content-disposition'] || '';
-      let filename = 'download.bin';
-      const match = disposition.match(/filename\*?=['"]?(?:UTF-8'')?([^'";]+)['"]?/i);
-      if (match && match[1]) {
-        try {
-          filename = decodeURIComponent(match[1]);
-        } catch {
-          filename = match[1];
+        if (res.statusCode !== 206) {
+          contentLength = parseInt(res.headers['content-length'] || '0', 10);
+          supportsRanges = (res.headers['accept-ranges'] || '').toLowerCase() === 'bytes';
         }
-      } else {
-        const basename = path.basename(new URL(finalUrl).pathname);
-        if (basename && basename.length > 0 && !basename.includes('=')) {
-          filename = basename;
-        }
+
+        const filename = parseFilename(res.headers['content-disposition'], finalUrl);
+        res.destroy(); // Consume no further bytes
+
+        return resolve({
+          url: finalUrl,
+          filename,
+          contentLength,
+          supportsRanges,
+          etag: res.headers['etag'] || null,
+          contentType: res.headers['content-type'] || 'application/octet-stream'
+        });
       }
-      filename = sanitizeFilename(filename);
 
-      res.destroy(); // Consume no further bytes
-
-      resolve({
-        url: finalUrl,
-        filename,
-        contentLength,
-        supportsRanges,
-        etag: res.headers['etag'] || null,
-        contentType: res.headers['content-type'] || 'application/octet-stream'
-      });
+      // If Range 0-0 was rejected (e.g. 400, 405, 416), fall back to standard GET probe without Range
+      res.resume();
+      return requestWithRedirects(urlStr, {
+        method: 'GET',
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) TurboDownloadManager/1.0',
+          'Accept-Encoding': 'identity'
+        }
+      }).then(({ response: fallbackRes, finalUrl: fallbackUrl }) => {
+        if (fallbackRes.statusCode < 200 || fallbackRes.statusCode >= 300) {
+          fallbackRes.resume();
+          return reject(new Error(`Server returned HTTP ${fallbackRes.statusCode} while probing download URL`));
+        }
+        const contentLength = parseInt(fallbackRes.headers['content-length'] || '0', 10);
+        const supportsRanges = (fallbackRes.headers['accept-ranges'] || '').toLowerCase() === 'bytes';
+        const filename = parseFilename(fallbackRes.headers['content-disposition'], fallbackUrl);
+        fallbackRes.destroy();
+        resolve({
+          url: fallbackUrl,
+          filename,
+          contentLength,
+          supportsRanges,
+          etag: fallbackRes.headers['etag'] || null,
+          contentType: fallbackRes.headers['content-type'] || 'application/octet-stream'
+        });
+      }).catch(reject);
     }));
 }
 
@@ -336,28 +364,33 @@ export class MultiInterfaceDownload {
     }
 
     if (candidate) {
-      const remaining = candidate.end - candidate.currentOffset + 1;
-      const half = Math.floor(remaining / 2);
-      const oldEnd = candidate.end;
-      const splitPoint = candidate.end - half;
+      const currentOffset = candidate.currentOffset;
+      const remaining = candidate.end - currentOffset + 1;
+      if (remaining >= MIN_STEAL_BYTES) {
+        const half = Math.floor(remaining / 2);
+        const oldEnd = candidate.end;
+        const splitPoint = oldEnd - half;
 
-      // Shorten the candidate's boundary
-      candidate.end = splitPoint;
+        if (splitPoint > currentOffset && splitPoint < oldEnd) {
+          // Shorten the candidate's boundary safely
+          candidate.end = splitPoint;
 
-      // Create the new stolen segment with the second half
-      const newSeg = {
-        id: this.segments.length + 1,
-        interfaceAddress: workerAddress,
-        start: splitPoint + 1,
-        end: oldEnd,
-        currentOffset: splitPoint + 1,
-        downloaded: 0,
-        active: false,
-        done: false
-      };
+          // Create the new stolen segment with the second half
+          const newSeg = {
+            id: this.segments.length + 1,
+            interfaceAddress: workerAddress,
+            start: splitPoint + 1,
+            end: oldEnd,
+            currentOffset: splitPoint + 1,
+            downloaded: 0,
+            active: false,
+            done: false
+          };
 
-      this.segments.push(newSeg);
-      return newSeg;
+          this.segments.push(newSeg);
+          return newSeg;
+        }
+      }
     }
 
     return null;
@@ -406,7 +439,7 @@ export class MultiInterfaceDownload {
 
   async start() {
     if (this.status === 'downloading') return;
-    const isResuming = this.status === 'paused';
+    const isResuming = this.status === 'paused' || (this.status === 'error' && this.downloadedBytes > 0);
 
     // Only probe on initial run, not on resume
     if (this.contentLength === 0) {
@@ -441,18 +474,31 @@ export class MultiInterfaceDownload {
           await this.startMultiInterfaceDownload(isResuming);
         } catch (multiError) {
           if (this.status === 'paused' || this.status === 'cancelled') return;
-          if (/does not support byte-range requests|HTTP 200 ignored Range/i.test(multiError.message || '')) {
+          const isRangeUnsupported = /does not support byte-range requests|HTTP 200 ignored Range|without a valid byte range/i.test(multiError.message || '');
+          const isResourceChanged = /remote file size changed/i.test(multiError.message || '');
+
+          if (isRangeUnsupported || !this.supportsRanges) {
             this.supportsRanges = false;
-          }
-          this.forceSingleConnection = true;
-          this.fallbackReason = multiError.message || 'The segmented transfer failed.';
-          this.resetForSingleConnectionFallback();
-          this.error = `Multi-interface attempt failed (${multiError.message}); retrying with one connection.`;
-          this.notify();
-          try {
-            await this.startFallbackDownload();
-          } catch (fallbackError) {
-            throw new Error(`${this.error} Single-connection retry also failed (${fallbackError.message}).`);
+            this.forceSingleConnection = true;
+            this.fallbackReason = multiError.message || 'The server does not support segmented downloads.';
+            this.resetForSingleConnectionFallback();
+            this.error = `Segmented download not supported (${multiError.message}); retrying with single connection.`;
+            this.notify();
+            try {
+              await this.startFallbackDownload();
+            } catch (fallbackError) {
+              throw new Error(`${this.error} Single-connection retry also failed (${fallbackError.message}).`);
+            }
+          } else if (isResourceChanged) {
+            this.resetForSingleConnectionFallback();
+            throw multiError;
+          } else {
+            // Transient network error on segmented download: preserve segments so user can resume!
+            this.status = 'error';
+            this.error = multiError.message;
+            this.cleanup();
+            this.notify();
+            return;
           }
         }
       } else {
@@ -522,17 +568,32 @@ export class MultiInterfaceDownload {
       this.defaultRouteStats.currentSpeed = Math.max(0, Math.round(defaultRouteDelta / deltaSec));
       lastDefaultRouteBytes = this.defaultRouteStats.bytesDownloaded;
 
-      // When only 1 physical adapter is active, attribute total active speed and bytes to it so UI and visualizer stay in sync
-      if (this.interfaces.length === 1) {
-        const singleAddr = this.interfaces[0].address;
-        if (this.interfaceStats[singleAddr]) {
-          this.interfaceStats[singleAddr].currentSpeed = Math.max(
-            this.interfaceStats[singleAddr].currentSpeed,
+      // Attribute download speed and bytes to the active adapter carrying the stream so UI, network cards, and visualizer stay in sync.
+      // In single-connection mode (e.g. server does not support byte ranges, fallback, or 1 connection), traffic flows through one active adapter.
+      const isSingleConn = this.supportsRanges === false || this.forceSingleConnection || this.segments.length === 0;
+      if (isSingleConn || this.interfaces.length === 1) {
+        const fallbackStream = this.activeStreams.get('fallback');
+        const activeAddr = fallbackStream?.adapterAddress ||
+          this.interfaces.find(i => !this.pausedInterfaces.has(i.address) && !this.unavailableInterfaces.has(i.address))?.address ||
+          this.interfaces.find(i => !this.pausedInterfaces.has(i.address))?.address ||
+          (this.interfaces[0] ? this.interfaces[0].address : null);
+        if (activeAddr && this.interfaceStats[activeAddr]) {
+          this.interfaceStats[activeAddr].currentSpeed = Math.max(
+            this.interfaceStats[activeAddr].currentSpeed,
             this.currentSpeed
           );
-          this.interfaceStats[singleAddr].bytesDownloaded = Math.max(
-            this.interfaceStats[singleAddr].bytesDownloaded,
+          this.interfaceStats[activeAddr].bytesDownloaded = Math.max(
+            this.interfaceStats[activeAddr].bytesDownloaded,
             this.downloadedBytes
+          );
+        }
+      } else if (this.defaultRouteStats.currentSpeed > 0) {
+        // If traffic was credited to default route, map it to the primary unpaused adapter so it is displayed on the grid
+        const primaryAddr = this.interfaces.find(i => !this.pausedInterfaces.has(i.address))?.address || (this.interfaces[0] ? this.interfaces[0].address : null);
+        if (primaryAddr && this.interfaceStats[primaryAddr]) {
+          this.interfaceStats[primaryAddr].currentSpeed = Math.max(
+            this.interfaceStats[primaryAddr].currentSpeed,
+            this.defaultRouteStats.currentSpeed
           );
         }
       }
@@ -548,14 +609,23 @@ export class MultiInterfaceDownload {
     if (this.fd === null) {
       const fileExists = fs.existsSync(this.outputPath);
       this.fd = fs.openSync(this.outputPath, preserveExistingFile && fileExists ? 'r+' : 'w+');
-      fs.ftruncateSync(this.fd, this.contentLength);
+      try {
+        fs.ftruncateSync(this.fd, this.contentLength);
+      } catch (err) {
+        try { fs.closeSync(this.fd); } catch {}
+        this.fd = null;
+        throw new Error(`Failed to allocate file on disk (${err.message}). Check available disk space.`);
+      }
     }
 
     // 2. Partition file into initial slices (e.g. 16 or 24 slices)
     if (!this.supportsRanges || this.contentLength <= 0) {
       this.segments = [];
     } else if (this.segments.length === 0) {
-      const initialCount = Math.max(16, this.totalConnections * 2);
+      const minChunkSize = 512 * 1024; // 512 KB minimum chunk
+      const targetCount = Math.max(4, this.totalConnections * 2);
+      const maxCountBySize = Math.max(1, Math.floor(this.contentLength / minChunkSize));
+      const initialCount = Math.max(1, Math.min(targetCount, maxCountBySize));
       const chunkSize = Math.floor(this.contentLength / initialCount);
       const availableInterfaces = this.interfaces.length > 0 ? this.interfaces : [{ address: null, label: 'Default Gateway' }];
 
@@ -616,7 +686,21 @@ export class MultiInterfaceDownload {
         try {
           await this.downloadSegment(seg, workerAddress);
         } catch (err) {
-          workerFailure = err;
+          if (/does not support byte-range requests|HTTP 200 ignored Range|without a valid byte range|remote file size changed/i.test(err.message || '')) {
+            workerFailure = err;
+            break;
+          }
+          if (workerAddress) {
+            this.unavailableInterfaces.add(workerAddress);
+          }
+          seg.active = false;
+          // Check if any interface is still available
+          const hasAnyRoute = this.interfaces.some(i => !this.pausedInterfaces.has(i.address) && !this.unavailableInterfaces.has(i.address)) || this.allowDefaultRoute;
+          if (!hasAnyRoute) {
+            workerFailure = err;
+            break;
+          }
+          await new Promise(r => setTimeout(r, 400));
         }
       }
     };
@@ -699,6 +783,9 @@ export class MultiInterfaceDownload {
             let settled = false;
             const finish = (err) => {
               if (settled) return;
+              if (err && (seg.done || seg.currentOffset > seg.end)) {
+                err = null;
+              }
               settled = true;
               if (err) reject(err);
               else resolve();
@@ -713,9 +800,10 @@ export class MultiInterfaceDownload {
               try {
                 const remaining = seg.end - seg.currentOffset + 1;
                 if (remaining <= 0) {
-                  stream.destroy();
                   seg.done = true;
-                  return finish();
+                  finish();
+                  try { stream.destroy(); } catch {}
+                  return;
                 }
 
                 const toWrite = chunk.length > remaining ? chunk.subarray(0, remaining) : chunk;
@@ -724,7 +812,7 @@ export class MultiInterfaceDownload {
                 seg.downloaded += toWrite.length;
                 this.downloadedBytes += toWrite.length;
 
-                const targetRoute = route || (this.interfaces.length === 1 ? this.interfaces[0].address : null);
+                const targetRoute = route || (this.interfaces.find(i => !this.pausedInterfaces.has(i.address))?.address || (this.interfaces[0] ? this.interfaces[0].address : null));
                 if (targetRoute && this.interfaceStats[targetRoute]) {
                   this.interfaceStats[targetRoute].bytesDownloaded += toWrite.length;
                 } else {
@@ -732,9 +820,9 @@ export class MultiInterfaceDownload {
                 }
 
                 if (seg.currentOffset > seg.end) {
-                  stream.destroy();
                   seg.done = true;
                   finish();
+                  try { stream.destroy(); } catch {}
                 }
               } catch (writeErr) {
                 stream.destroy();
@@ -750,11 +838,17 @@ export class MultiInterfaceDownload {
                 finish(new Error(`Segment ${seg.id} ended before all requested bytes arrived`));
               }
             });
-            stream.on('error', finish);
-            stream.on('aborted', () => {
-              if (seg.currentOffset <= seg.end) {
-                finish(new Error(`Segment ${seg.id} was aborted before completion`));
+            stream.on('error', (err) => {
+              if (seg.done || seg.currentOffset > seg.end) {
+                return finish();
               }
+              finish(err);
+            });
+            stream.on('aborted', () => {
+              if (seg.done || seg.currentOffset > seg.end) {
+                return finish();
+              }
+              finish(new Error(`Segment ${seg.id} was aborted before completion`));
             });
           });
 
@@ -928,9 +1022,11 @@ export class MultiInterfaceDownload {
                 fs.writeSync(this.fd, chunk, 0, chunk.length, resumeOffset + responseBytes);
                 responseBytes += chunk.length;
                 this.downloadedBytes = resumeOffset + responseBytes;
-                const targetRoute = route || (this.interfaces.length > 0 ? this.interfaces[0].address : null);
+                const targetRoute = route || (this.interfaces.find(i => !this.pausedInterfaces.has(i.address))?.address || (this.interfaces[0] ? this.interfaces[0].address : null));
                 if (targetRoute && this.interfaceStats[targetRoute]) {
                   this.interfaceStats[targetRoute].bytesDownloaded += chunk.length;
+                } else if (this.interfaces.length > 0 && this.interfaceStats[this.interfaces[0].address]) {
+                  this.interfaceStats[this.interfaces[0].address].bytesDownloaded += chunk.length;
                 } else {
                   this.defaultRouteStats.bytesDownloaded += chunk.length;
                 }
@@ -1003,7 +1099,8 @@ export class MultiInterfaceDownload {
   }
 
   resume() {
-    if (this.status !== 'paused') return;
+    if (this.status !== 'paused' && this.status !== 'error') return;
+    this.error = null;
     this.start();
   }
 

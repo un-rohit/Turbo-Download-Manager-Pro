@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "Turbo Download Manager Integration Module",
-  "version": "1.0.11",
+  "version": "1.0.12",
   "description": "Seamlessly intercepts browser downloads and media streams into Turbo Download Manager multi-interface accelerator.",
   "permissions": [
     "downloads",
     "contextMenus",
     "storage",
-    "activeTab"
+    "activeTab",
+    "webRequest"
   ],
   "host_permissions": [
     "<all_urls>",
@@ -32,10 +33,22 @@
   },
   "content_scripts": [
     {
+      "matches": ["*://*.youtube.com/*"],
+      "js": ["yt-helper.js"],
+      "world": "MAIN",
+      "run_at": "document_start"
+    },
+    {
       "matches": ["<all_urls>"],
       "js": ["content.js"],
       "css": ["content.css"],
       "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["yt-helper.js"],
+      "matches": ["*://*.youtube.com/*"]
     }
   ]
 }
