@@ -612,57 +612,6 @@
       }
     }
 
-    // 3. YouTube Multi-Quality Synthesis from active playback base URL + itagMeta
-    let sampleUrl = null;
-    const ytSample = genericStreams.find(s => s.url && s.url.includes('googlevideo.com/videoplayback'));
-    if (ytSample && ytSample.url) {
-      sampleUrl = ytSample.url;
-    } else {
-      try {
-        const gvEntry = performance.getEntriesByType('resource').find(e => e.name && e.name.includes('googlevideo.com/videoplayback'));
-        if (gvEntry) sampleUrl = gvEntry.name;
-      } catch {}
-    }
-
-    if (sampleUrl && ytMediaData?.itagMeta) {
-      for (const [metaItag, meta] of Object.entries(ytMediaData.itagMeta)) {
-        const itagInfo = YOUTUBE_ITAG_MAP[metaItag];
-        if (!itagInfo) continue;
-        const isAudio = itagInfo.type === 'audio' || itagInfo.format === 'M4A';
-        const qualityName = itagInfo.quality || (isAudio ? 'Audio' : 'Video');
-        const formatName = itagInfo.format || (isAudio ? 'M4A' : 'MP4');
-        const label = itagInfo.label || `${qualityName} (${formatName})`;
-        if (seenLabels.has(label)) continue;
-
-        let variantUrl = sampleUrl;
-        try {
-          const u = new URL(sampleUrl);
-          u.searchParams.set('itag', metaItag);
-          variantUrl = u.toString();
-        } catch {
-          variantUrl = sampleUrl.replace(/([?&])itag=\d+/, `$1itag=${metaItag}`);
-          if (!variantUrl.includes('itag=')) {
-            variantUrl += (variantUrl.includes('?') ? '&' : '?') + `itag=${metaItag}`;
-          }
-        }
-
-        if (seenUrls.has(variantUrl)) continue;
-
-        results.push({
-          url: variantUrl,
-          quality: qualityName,
-          badge: itagInfo.badge,
-          label,
-          format: formatName,
-          type: isAudio ? 'audio' : 'video',
-          isHD: itagInfo.isHD,
-          size: meta.size || '',
-          itag: metaItag
-        });
-        seenUrls.add(variantUrl);
-        seenLabels.add(label);
-      }
-    }
 
     // 4. Current active video element direct source (for direct mp4 sites)
     if (currentTargetVideo && !window.location.hostname.includes('youtube.com')) {
