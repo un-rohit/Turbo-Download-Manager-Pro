@@ -652,6 +652,7 @@ export class MultiInterfaceDownload {
       const targetCount = Math.max(4, this.totalConnections * 2);
       const maxCountBySize = Math.max(1, Math.floor(this.contentLength / minChunkSize));
       const initialCount = Math.max(1, Math.min(targetCount, maxCountBySize));
+      const chunkSize = Math.ceil(this.contentLength / initialCount);
       const isGoogleVideo = /googlevideo\.com/i.test(this.url);
       const availableInterfaces = (isGoogleVideo || this.interfaces.length === 0)
         ? [{ address: null, label: 'Default Route' }]
