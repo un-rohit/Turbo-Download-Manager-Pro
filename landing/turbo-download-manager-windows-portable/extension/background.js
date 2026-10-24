@@ -84,10 +84,23 @@ async function ensureDesktopAppRunning() {
 
   isWakingUpApp = true;
   try {
-    // Wake up the Windows desktop application directly from extension context without injecting into the web page
-    chrome.tabs.create({ url: 'turbodownload://open', active: false }, (t) => {
-      if (t && t.id) setTimeout(() => chrome.tabs.remove(t.id).catch(() => {}), 1500);
-    });
+    // 1. Silent Native Messaging launch (never prompts the user, completely silent)
+    let nativeSent = false;
+    if (chrome.runtime?.sendNativeMessage) {
+      try {
+        chrome.runtime.sendNativeMessage('com.turbo.downloadmanager', { cmd: 'launch' }, () => {
+          if (chrome.runtime?.lastError) {}
+        });
+        nativeSent = true;
+      } catch {}
+    }
+
+    // 2. Fallback to protocol launch if native messaging is not available
+    if (!nativeSent) {
+      chrome.tabs.create({ url: 'turbodownload://open', active: false }, (t) => {
+        if (t && t.id) setTimeout(() => chrome.tabs.remove(t.id).catch(() => {}), 1500);
+      });
+    }
 
     // Wait up to 6 seconds for the desktop application to wake up and bind port 4820
     for (let i = 0; i < 15; i++) {
