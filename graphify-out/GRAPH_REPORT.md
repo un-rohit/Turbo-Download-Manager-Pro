@@ -1,17 +1,17 @@
 # Graph Report - REA  (2026-10-24)
 
 ## Corpus Check
-- 51 files · ~89,117 words
+- 51 files · ~88,859 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 19 file(s) not represented in the graph (top: .css 9, (none) 3, .zip 2)
 
 ## Summary
-- 713 nodes · 1233 edges · 43 communities (37 shown, 6 thin omitted)
+- 713 nodes · 1230 edges · 43 communities (37 shown, 6 thin omitted)
 - Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 25 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `48f6e247`
+- Built from commit: `39352a85`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -137,7 +137,7 @@ Cohesion: 0.31
 Nodes (7): busyDownloadActions, checkServerStatus(), downloadState, escapeHtml(), formatBytes(), formatSpeed(), renderDownloads()
 
 ### Community 14 - "extension/content.js"
-Cohesion: 0.19
+Cohesion: 0.18
 Nodes (26): addGenericMediaStream(), askWhereToDownload(), cleanPageTitle(), cleanTitle(), clearStreamsForNewVideo(), closeDropdown(), ensureDropdown(), ensureGrabber() (+18 more)
 
 ### Community 17 - "vercel.json"
@@ -205,11 +205,11 @@ Cohesion: 0.31
 Nodes (7): busyDownloadActions, checkServerStatus(), downloadState, escapeHtml(), formatBytes(), formatSpeed(), renderDownloads()
 
 ### Community 34 - "turbo-download-manager-extension/content.js"
-Cohesion: 0.19
+Cohesion: 0.18
 Nodes (26): addGenericMediaStream(), askWhereToDownload(), cleanPageTitle(), cleanTitle(), clearStreamsForNewVideo(), closeDropdown(), ensureDropdown(), ensureGrabber() (+18 more)
 
 ### Community 35 - "turbo-download-manager-windows-portable/extension/content.js"
-Cohesion: 0.19
+Cohesion: 0.18
 Nodes (26): addGenericMediaStream(), askWhereToDownload(), cleanPageTitle(), cleanTitle(), clearStreamsForNewVideo(), closeDropdown(), ensureDropdown(), ensureGrabber() (+18 more)
 
 ### Community 36 - "turbo-download-manager-extension/yt-helper.js"

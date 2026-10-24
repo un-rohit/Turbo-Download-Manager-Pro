@@ -302,9 +302,6 @@
       ytResolvedStreams = [];
     }
     currentVideoId = newId;
-    if (newId) {
-      fetchResolvedYouTubeStreams();
-    }
 
     const t = newTitle || getActiveVideoTitle();
     const dropdownEl = activeDropdown || activeGrabber;

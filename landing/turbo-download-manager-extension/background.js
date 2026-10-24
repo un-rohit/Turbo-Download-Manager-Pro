@@ -84,35 +84,9 @@ async function ensureDesktopAppRunning() {
 
   isWakingUpApp = true;
   try {
-    // Automatically wake up the Windows desktop application using registered turbodownload:// protocol
-    chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-      const activeTab = tabs && tabs[0];
-      if (activeTab && activeTab.id) {
-        if (chrome.scripting && chrome.scripting.executeScript) {
-          chrome.scripting.executeScript({
-            target: { tabId: activeTab.id },
-            func: () => {
-              const ifr = document.createElement('iframe');
-              ifr.style.display = 'none';
-              ifr.src = 'turbodownload://open';
-              document.documentElement.appendChild(ifr);
-              setTimeout(() => ifr.remove(), 2500);
-            }
-          }).catch(() => {
-            chrome.tabs.create({ url: 'turbodownload://open', active: false }, (t) => {
-              if (t && t.id) setTimeout(() => chrome.tabs.remove(t.id).catch(() => {}), 1500);
-            });
-          });
-        } else {
-          chrome.tabs.create({ url: 'turbodownload://open', active: false }, (t) => {
-            if (t && t.id) setTimeout(() => chrome.tabs.remove(t.id).catch(() => {}), 1500);
-          });
-        }
-      } else {
-        chrome.tabs.create({ url: 'turbodownload://open', active: false }, (t) => {
-          if (t && t.id) setTimeout(() => chrome.tabs.remove(t.id).catch(() => {}), 1500);
-        });
-      }
+    // Wake up the Windows desktop application directly from extension context without injecting into the web page
+    chrome.tabs.create({ url: 'turbodownload://open', active: false }, (t) => {
+      if (t && t.id) setTimeout(() => chrome.tabs.remove(t.id).catch(() => {}), 1500);
     });
 
     // Wait up to 6 seconds for the desktop application to wake up and bind port 4820
@@ -377,7 +351,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'resolveYouTube') {
     (async () => {
       try {
-        await ensureDesktopAppRunning();
+        const isRunning = await pingDesktopServer(400);
+        if (!isRunning) {
+          sendResponse({ success: false, error: 'Desktop application is not running' });
+          return;
+        }
         const res = await fetch(`${SERVER_URL}/api/media/resolve-yt?url=${encodeURIComponent(request.url)}`);
         const data = await readJsonResponse(res, 'YouTube Resolver');
         sendResponse(data);
