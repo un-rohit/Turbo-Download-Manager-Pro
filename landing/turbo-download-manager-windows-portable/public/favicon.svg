@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <!-- Background Gradient -->
+    <linearGradient id="tdmBg" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#0a101d"/>
+      <stop offset="100%" stop-color="#0f172a"/>
+    </linearGradient>
+
+    <!-- Border Glow Gradient -->
+    <linearGradient id="tdmBorder" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#00f2fe"/>
+      <stop offset="100%" stop-color="#00f5a0"/>
+    </linearGradient>
+
+    <!-- Lightning Bolt Gradient -->
+    <linearGradient id="tdmBolt" x1="30%" y1="0%" x2="70%" y2="100%">
+      <stop offset="0%" stop-color="#ffffff"/>
+      <stop offset="25%" stop-color="#00f2fe"/>
+      <stop offset="100%" stop-color="#00f5a0"/>
+    </linearGradient>
+
+    <!-- Outer Glow Filter -->
+    <filter id="tdmGlow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur stdDeviation="1.5" result="blur"/>
+      <feComposite in="SourceGraphic" in2="blur" operator="over"/>
+    </filter>
+  </defs>
+
+  <!-- Ambient Glow Background -->
+  <rect x="2" y="2" width="60" height="60" rx="16" fill="url(#tdmBg)" stroke="url(#tdmBorder)" stroke-width="2.5"/>
+
+  <!-- Electric Lightning Bolt -->
+  <polygon points="36.5,9.5 17.5,34 30,34 26,54.5 46.5,30 34,30" 
+           fill="url(#tdmBolt)" 
+           stroke="#00f2fe" 
+           stroke-width="0.8" 
+           stroke-linejoin="round"
+           filter="url(#tdmGlow)"/>
+</svg>
