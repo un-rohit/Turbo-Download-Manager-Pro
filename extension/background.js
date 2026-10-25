@@ -188,6 +188,13 @@ async function sendToTurboDownloader(url, filename, options = {}) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           url,
+          watchUrl: options.watchUrl,
+          isYouTube: options.isYouTube,
+          quality: options.quality,
+          badge: options.badge,
+          itag: options.itag,
+          format: options.format,
+          isAudio: options.isAudio,
           filename: filename || undefined,
           connectionsPerInterface: 2,
           interfaces,
@@ -340,7 +347,14 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     try { if (senderUrl) origin = new URL(senderUrl).origin; } catch {}
     sendToTurboDownloader(request.url, request.filename, {
       referer: request.referer || senderUrl,
-      origin: request.origin || origin
+      origin: request.origin || origin,
+      watchUrl: request.watchUrl,
+      isYouTube: request.isYouTube,
+      quality: request.quality,
+      badge: request.badge,
+      itag: request.itag,
+      format: request.format,
+      isAudio: request.isAudio
     }).then(sendResponse);
     return true; // Keep channel open for async response
   }
@@ -507,6 +521,12 @@ function registerMediaStream(tabId, rawUrl, headers = []) {
   let ytStreamId = null;
   let aitagsStr = null;
   if (isYouTubeStream) {
+    // Modern YouTube uses SABR protobuf streaming protocol.
+    // SABR chunk requests cannot be downloaded directly via standard HTTP GET.
+    // YouTube downloads are handled through the high-fidelity resolver instead.
+    const hasSabr = /sabr=1|sparams=[^&]*sabr/i.test(rawUrl);
+    if (hasSabr) return;
+
     try {
       const parsed = new URL(rawUrl);
       itag = parsed.searchParams.get('itag');
@@ -522,10 +542,7 @@ function registerMediaStream(tabId, rawUrl, headers = []) {
       cleanUrl = parsed.toString();
     } catch {}
 
-    // In modern YouTube SABR, the playback request may not have explicit itag in query string
-    if (!itag) {
-      itag = '137';
-    }
+    if (!itag) return;
   }
 
   let streams = tabMediaStreams.get(tabId) || [];

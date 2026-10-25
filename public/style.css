@@ -1256,9 +1256,9 @@ body {
 .history-table col.col-select,
 .history-table th.history-col-select,
 .history-table td.history-col-select {
-  width: 36px !important;
-  min-width: 36px !important;
-  max-width: 36px !important;
+  width: 38px !important;
+  min-width: 38px !important;
+  max-width: 38px !important;
   padding: 10px 4px !important;
   text-align: center;
   box-sizing: border-box;
@@ -1268,29 +1268,29 @@ body {
 .history-table th.history-col-filename,
 .history-table td.history-col-filename {
   width: auto !important;
-  min-width: 0 !important;
+  min-width: 160px !important;
   overflow: hidden !important;
   box-sizing: border-box;
+  padding-left: 10px !important;
+  padding-right: 14px !important;
 }
 
 .history-table col.col-size,
 .history-table th.history-col-size,
 .history-table td.history-col-size {
-  width: 76px !important;
-  min-width: 70px !important;
-  max-width: 85px !important;
+  width: 130px !important;
+  min-width: 120px !important;
   white-space: nowrap !important;
   text-align: right;
-  padding-right: 10px !important;
+  padding-right: 14px !important;
   box-sizing: border-box;
 }
 
 .history-table col.col-status,
 .history-table th.history-col-status,
 .history-table td.history-col-status {
-  width: 105px !important;
-  min-width: 95px !important;
-  max-width: 115px !important;
+  width: 130px !important;
+  min-width: 120px !important;
   white-space: nowrap !important;
   text-align: center;
   box-sizing: border-box;
@@ -1299,9 +1299,8 @@ body {
 .history-table col.col-date,
 .history-table th.history-col-date,
 .history-table td.history-col-date {
-  width: 145px !important;
-  min-width: 130px !important;
-  max-width: 160px !important;
+  width: 170px !important;
+  min-width: 155px !important;
   white-space: nowrap !important;
   text-align: center;
   box-sizing: border-box;
@@ -1310,11 +1309,11 @@ body {
 .history-table col.col-actions,
 .history-table th.history-col-actions,
 .history-table td.history-col-actions {
-  width: 260px !important;
-  min-width: 250px !important;
+  width: 325px !important;
+  min-width: 315px !important;
   white-space: nowrap !important;
   text-align: right;
-  padding-right: 8px !important;
+  padding-right: 10px !important;
   box-sizing: border-box;
 }
 
@@ -2236,23 +2235,6 @@ textarea:focus {
     padding: 16px 20px;
     gap: 14px;
   }
-
-  .history-actions-row .btn-history-folder .btn-label,
-  .history-actions-row .btn-history-copy .btn-label {
-    display: none;
-  }
-
-  .history-actions-row .btn-history-folder,
-  .history-actions-row .btn-history-copy {
-    padding: 4px 7px;
-  }
-
-  .history-table col.col-actions,
-  .history-table th.history-col-actions,
-  .history-table td.history-col-actions {
-    width: 155px !important;
-    min-width: 145px !important;
-  }
 }
 
 @media (max-width: 900px) {
@@ -2422,19 +2404,21 @@ textarea:focus {
     width: 0 !important;
   }
 
+  .history-actions-row .btn-history-folder .btn-label,
+  .history-actions-row .btn-history-copy .btn-label,
   .history-actions-row .btn-history-primary .btn-label {
     display: none;
   }
 
-  .history-actions-row .btn-history-primary {
+  .history-actions-row .btn {
     padding: 4px 7px;
   }
 
   .history-table col.col-actions,
   .history-table th.history-col-actions,
   .history-table td.history-col-actions {
-    width: 125px !important;
-    min-width: 115px !important;
+    width: 145px !important;
+    min-width: 135px !important;
   }
 }
 

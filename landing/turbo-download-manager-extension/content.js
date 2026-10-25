@@ -238,6 +238,10 @@
   let currentVideoId = '';
   const genericStreams = []; // Array of { url, quality, label, format, size, type, itag, badge }
   let ytResolvedStreams = [];
+
+  if (window.location.hostname.includes('youtube.com')) {
+    document.documentElement.setAttribute('data-turbo-site', 'youtube');
+  }
   let isResolvingYt = false;
   let lastResolvedVideoId = '';
 
@@ -345,6 +349,7 @@
       const v = new URLSearchParams(window.location.search).get('v') || '';
       if (v && v !== currentVideoId) {
         clearStreamsForNewVideo(v, getActiveVideoTitle());
+        fetchResolvedYouTubeStreams();
       }
     } catch {}
   }, 300);
@@ -459,11 +464,6 @@
       }
 
       injectYouTubeActionButton();
-
-      const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player') || document.querySelector('video');
-      if (ytPlayer) {
-        showGrabberFor(ytPlayer);
-      }
     }
   });
 
@@ -510,6 +510,13 @@
   }
 
   function ensureGrabber() {
+    if (window.location.hostname.includes('youtube.com')) {
+      if (activeGrabber) {
+        activeGrabber.remove();
+        activeGrabber = null;
+      }
+      return null;
+    }
     if (activeGrabber) return activeGrabber;
 
     activeGrabber = document.createElement('div');
@@ -546,6 +553,12 @@
   function injectYouTubeActionButton() {
     if (!mediaGrabberEnabled) return;
     if (!window.location.hostname.includes('youtube.com')) return;
+
+    if (activeGrabber) {
+      activeGrabber.classList.remove('is-visible');
+      activeGrabber.remove();
+      activeGrabber = null;
+    }
 
     const menu = document.querySelector('#top-level-buttons-computed, ytd-menu-renderer #top-level-buttons-computed');
     if (!menu) return;
@@ -632,6 +645,10 @@
     // 2. Streams sniffed by webRequest in background.js (including 4K, 2K, 1080p, 720p, 480p, 360p, Audio)
     for (const stream of genericStreams) {
       if (stream.url && !seenUrls.has(stream.url)) {
+        // On YouTube, filter out raw browser playback chunk requests
+        if (window.location.hostname.includes('youtube.com') && stream.url.includes('googlevideo.com')) {
+          continue;
+        }
         let itag = stream.itag;
         if (!itag) {
           try {
@@ -849,7 +866,14 @@
 
         safeSendMessage({
           action: 'downloadUrl',
-          url: stream.url,
+          url: stream.watchUrl || stream.url,
+          watchUrl: stream.watchUrl || (window.location.hostname.includes('youtube.com') ? window.location.href : null),
+          isYouTube: !!stream.watchUrl || window.location.hostname.includes('youtube.com'),
+          badge: stream.badge,
+          quality: stream.quality,
+          itag: stream.itag,
+          format: stream.format,
+          isAudio: stream.type === 'audio',
           filename: stream.filename || finalFilename,
           referer: window.location.href,
           origin: window.location.origin
@@ -972,25 +996,14 @@
 
   function positionGrabber(targetEl) {
     if (!activeGrabber) return;
-    const isYouTube = window.location.hostname.includes('youtube.com');
-    const fullscreenEl = document.fullscreenElement;
-
-    // On YouTube: Always anchor strictly inside the main player container at the top-right corner
-    if (isYouTube) {
-      const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-      if (ytPlayer) {
-        if (activeGrabber.parentElement !== ytPlayer) {
-          ytPlayer.appendChild(activeGrabber);
-        }
-        activeGrabber.style.position = 'absolute';
-        activeGrabber.style.top = '14px';
-        activeGrabber.style.right = '18px';
-        activeGrabber.style.left = 'auto';
-        activeGrabber.style.bottom = 'auto';
-        activeGrabber.style.zIndex = '2147483647';
-        return;
-      }
+    if (window.location.hostname.includes('youtube.com')) {
+      activeGrabber.classList.remove('is-visible');
+      activeGrabber.remove();
+      activeGrabber = null;
+      return;
     }
+
+    const fullscreenEl = document.fullscreenElement;
 
     // In fullscreen mode, mount inside fullscreen element so it stays on top
     if (fullscreenEl && activeGrabber.parentElement !== fullscreenEl) {
@@ -1082,22 +1095,17 @@
 
     if (window.location.hostname.includes('youtube.com')) {
       injectYouTubeActionButton();
-      const isFullscreen = !!document.fullscreenElement;
-      const hasActionBtn = !!document.getElementById('turboYtActionContainer');
-      const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-      if (ytPlayer && (isFullscreen || !hasActionBtn)) {
-        currentTargetVideo = ytPlayer;
-        const grabber = ensureGrabber();
-        positionGrabber(ytPlayer);
-        grabber.classList.add('is-visible');
-        clearTimeout(hideTimer);
-        return;
+      if (activeGrabber) {
+        activeGrabber.classList.remove('is-visible');
+        activeGrabber.remove();
+        activeGrabber = null;
       }
       return;
     }
 
     currentTargetVideo = videoEl;
     const grabber = ensureGrabber();
+    if (!grabber) return;
     positionGrabber(videoEl);
     grabber.classList.add('is-visible');
     clearTimeout(hideTimer);
@@ -1127,15 +1135,6 @@
     if (window.location.hostname.includes('youtube.com')) {
       injectYouTubeActionButton();
       const ytPlayer = document.getElementById('movie_player') || document.querySelector('.html5-video-player');
-      if (ytPlayer && !ytPlayer._turboHooked) {
-        ytPlayer._turboHooked = true;
-        ytPlayer.addEventListener('mouseenter', () => {
-          showGrabberFor(ytPlayer);
-        });
-        ytPlayer.addEventListener('mouseleave', () => {
-          scheduleHide();
-        });
-      }
 
       const v = (ytPlayer ? ytPlayer.querySelector('video') : null) || document.querySelector('video');
       if (v && !v._turboVideoHooked) {
@@ -1190,12 +1189,9 @@
       return;
     }
 
-    // On YouTube: strictly only care about the main #movie_player
+    // On YouTube: strictly only care about the action button below the video
     if (window.location.hostname.includes('youtube.com')) {
-      const ytPlayer = target.closest?.('#movie_player') || (target.id === 'movie_player' ? target : null);
-      if (ytPlayer) {
-        showGrabberFor(ytPlayer);
-      }
+      injectYouTubeActionButton();
       return;
     }
 
@@ -1264,6 +1260,9 @@
     scanForVideos();
   }, 1500);
   scanForVideos();
+  if (window.location.hostname.includes('youtube.com')) {
+    fetchResolvedYouTubeStreams();
+  }
 
   // Initial getTabMedia check
   safeSendMessage({ action: 'getTabMedia' }, (res) => {

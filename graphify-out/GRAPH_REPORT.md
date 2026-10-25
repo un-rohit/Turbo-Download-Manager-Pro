@@ -1,17 +1,17 @@
-# Graph Report - REA  (2026-10-24)
+# Graph Report - REA  (2026-10-25)
 
 ## Corpus Check
-- 51 files · ~88,979 words
+- 53 files · ~91,875 words
 - Verdict: corpus is large enough that graph structure adds value.
 - Unclassified: 19 file(s) not represented in the graph (top: .css 9, (none) 3, .zip 2)
 
 ## Summary
-- 713 nodes · 1230 edges · 43 communities (37 shown, 6 thin omitted)
-- Extraction: 98% EXTRACTED · 2% INFERRED · 0% AMBIGUOUS · INFERRED: 25 edges (avg confidence: 0.85)
+- 745 nodes · 1306 edges · 43 communities (36 shown, 7 thin omitted)
+- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 19 edges (avg confidence: 0.85)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `b0bc9984`
+- Built from commit: `65c90bca`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -53,9 +53,9 @@
 - turbo-download-manager-windows-portable/extension/content.js
 - turbo-download-manager-extension/yt-helper.js
 - turbo-download-manager-windows-portable/extension/yt-helper.js
-- engine/yt-resolver.js
+- downloadManager
 - turbo-download-manager-windows-portable/server.js
-- turbo-download-manager-windows-portable/engine/yt-resolver.js
+- engine/network.js
 - turbo-download-manager-windows-portable/engine/network.js
 - turbo-download-manager-windows-portable/sea-entry.cjs
 
@@ -68,8 +68,8 @@
 6. `handleRequest()` - 16 edges
 7. `QuantumEnergyFlowCanvas` - 16 edges
 8. `handleRequest()` - 16 edges
-9. `renderDropdownItems()` - 10 edges
-10. `renderDropdownItems()` - 10 edges
+9. `YouTubeDownloadTask` - 14 edges
+10. `YouTubeDownloadTask` - 14 edges
 
 ## Surprising Connections (you probably didn't know these)
 - `handleRequest()` --calls--> `probeUrl()`  [EXTRACTED]
@@ -86,7 +86,7 @@
 ## Import Cycles
 - None detected.
 
-## Communities (43 total, 6 thin omitted)
+## Communities (43 total, 7 thin omitted)
 
 ### Community 0 - "electron-main.cjs"
 Cohesion: 0.12
@@ -113,8 +113,8 @@ Cohesion: 0.10
 Nodes (20): author, description, devDependencies, electron, @electron/packager, electron, @electron/packager, keywords (+12 more)
 
 ### Community 7 - "MultiInterfaceDownload"
-Cohesion: 0.09
-Nodes (9): formatByteCount(), getRequestHeaders(), MultiInterfaceDownload, probeUrl(), requestChunk(), requestWithRedirects(), sanitizeFilename(), downloadManager (+1 more)
+Cohesion: 0.19
+Nodes (7): formatByteCount(), getRequestHeaders(), MultiInterfaceDownload, probeUrl(), requestChunk(), requestWithRedirects(), sanitizeFilename()
 
 ### Community 8 - "initHeroVisualizer"
 Cohesion: 0.29
@@ -149,7 +149,7 @@ Cohesion: 0.14
 Nodes (15): crc32(), crcTable, createPNG(), iconsDir, makeChunk(), crc32(), crcTable, createPNG() (+7 more)
 
 ### Community 20 - "MultiInterfaceDownload"
-Cohesion: 0.20
+Cohesion: 0.19
 Nodes (7): formatByteCount(), getRequestHeaders(), MultiInterfaceDownload, probeUrl(), requestChunk(), requestWithRedirects(), sanitizeFilename()
 
 ### Community 21 - "turbo-download-manager-extension/manifest.json"
@@ -165,16 +165,16 @@ Cohesion: 0.10
 Nodes (20): author, description, devDependencies, electron, @electron/packager, electron, @electron/packager, keywords (+12 more)
 
 ### Community 24 - "ref_node_path"
-Cohesion: 0.19
-Nodes (6): appDir, projectRoot, server, appDir, projectRoot, server
+Cohesion: 0.07
+Nodes (28): appDir, projectRoot, server, parseSpeedString(), resolveFfmpegDir(), sanitizeFilename(), YouTubeDownloadTask, cleanTitle() (+20 more)
 
 ### Community 25 - "server.js"
 Cohesion: 0.13
 Nodes (19): broadcastSSE(), __dirname, __filename, getSettings(), handler(), handleRequest(), isAllowedRequestOrigin(), isPathInside() (+11 more)
 
 ### Community 26 - "engine/network.js"
-Cohesion: 0.22
-Nodes (9): categorizeInterface(), getNetworkInterfaces(), isVirtualMachineInterface(), testInterfaceConnectivity(), describeSpeedTestError(), runAdapterSpeedTest(), describeSpeedTestError(), runAdapterSpeedTest() (+1 more)
+Cohesion: 0.36
+Nodes (4): describeSpeedTestError(), runAdapterSpeedTest(), describeSpeedTestError(), runAdapterSpeedTest()
 
 ### Community 27 - "Turbo Download Manager Pro ⚡"
 Cohesion: 0.13
@@ -220,17 +220,13 @@ Nodes (9): cleanTitle(), extractFormats(), formatBytes(), getCurrentVideoId(), g
 Cohesion: 0.40
 Nodes (9): cleanTitle(), extractFormats(), formatBytes(), getCurrentVideoId(), getCurrentVideoTitle(), getPlayerResponse(), handleVideoSwitch(), notifyFormats() (+1 more)
 
-### Community 38 - "engine/yt-resolver.js"
-Cohesion: 0.39
-Nodes (7): cleanTitle(), execFileAsync, extractYouTubeVideoId(), formatBytes(), resolvePythonPath(), resolveYouTubeFormats(), ytCache
-
 ### Community 39 - "turbo-download-manager-windows-portable/server.js"
 Cohesion: 0.14
 Nodes (19): broadcastSSE(), __dirname, __filename, getSettings(), handler(), handleRequest(), isAllowedRequestOrigin(), isPathInside() (+11 more)
 
-### Community 40 - "turbo-download-manager-windows-portable/engine/yt-resolver.js"
-Cohesion: 0.46
-Nodes (7): cleanTitle(), execFileAsync, extractYouTubeVideoId(), formatBytes(), resolvePythonPath(), resolveYouTubeFormats(), ytCache
+### Community 40 - "engine/network.js"
+Cohesion: 0.43
+Nodes (5): categorizeInterface(), getNetworkInterfaces(), isVirtualMachineInterface(), testInterfaceConnectivity(), getVerifiedNetworkInterfaces()
 
 ### Community 41 - "turbo-download-manager-windows-portable/engine/network.js"
 Cohesion: 0.53
@@ -238,13 +234,13 @@ Nodes (5): categorizeInterface(), getNetworkInterfaces(), isVirtualMachineInterf
 
 ## Knowledge Gaps
 - **4 isolated node(s):** `@electron/packager`, `electron`, `@electron/packager`, `electron`
-  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 260 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
-- **6 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+  These have ≤1 connection - possible missing edges or undocumented components. (Counts symbols only; 268 node(s) total have ≤1 connection when file, concept and rationale nodes are included.)
+- **7 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `downloadManager` connect `MultiInterfaceDownload` to `ref_node_path`, `server.js`?**
+- **Why does `downloadManager` connect `downloadManager` to `ref_node_path`, `server.js`?**
   _High betweenness centrality (0.015) - this node is a cross-community bridge._
 - **What connects `@electron/packager`, `electron`, `@electron/packager` to the rest of the system?**
   _4 weakly-connected nodes found - possible documentation gaps or missing edges._
@@ -254,7 +250,7 @@ _Questions this graph is uniquely positioned to answer:_
   _High betweenness centrality (0.015) - this node is a cross-community bridge._
 - **Should `public/app.js` be split into smaller, more focused modules?**
   _Cohesion score 0.05641025641025641 - nodes in this community are weakly interconnected._
-- **Why does `MultiInterfaceDownload` connect `MultiInterfaceDownload` to `ref_node_path`?**
-  _High betweenness centrality (0.013) - this node is a cross-community bridge._
+- **Why does `MultiInterfaceDownload` connect `MultiInterfaceDownload` to `ref_node_path`, `downloadManager`?**
+  _High betweenness centrality (0.015) - this node is a cross-community bridge._
 - **Should `manifest.json` be split into smaller, more focused modules?**
   _Cohesion score 0.09523809523809523 - nodes in this community are weakly interconnected._

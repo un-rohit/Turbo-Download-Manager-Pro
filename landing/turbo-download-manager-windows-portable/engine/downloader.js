@@ -538,14 +538,33 @@ export class MultiInterfaceDownload {
 
       // Only mark completed if all segments are done or downloadedBytes >= contentLength
       if (this.downloadedBytes > 0 && (this.contentLength === 0 || this.downloadedBytes >= this.contentLength)) {
+        if (this.fd !== null) {
+          try { fs.fsyncSync(this.fd); } catch {}
+          try { fs.closeSync(this.fd); } catch {}
+          this.fd = null;
+        }
+
+        // Validate that audio/video files are not tiny error strings or SABR artifacts
+        if (fs.existsSync(this.outputPath)) {
+          const stat = fs.statSync(this.outputPath);
+          if (stat.size <= 1024 && /\.(mp4|webm|mkv|m4v|avi|mov|mp3|m4a|aac)$/i.test(this.filename)) {
+            let preview = '';
+            try {
+              const buf = fs.readFileSync(this.outputPath);
+              preview = buf.toString('utf8');
+            } catch {}
+            if (preview.includes('sabr') || preview.includes('malformed') || preview.includes('error') || preview.includes('<html') || stat.size < 500) {
+              try { fs.unlinkSync(this.outputPath); } catch {}
+              throw new Error(`Download failed: server returned invalid media stream (${preview.trim() || 'payload too small'}).`);
+            }
+          }
+        }
+
         this.contentLength = Math.max(this.contentLength, this.downloadedBytes);
         this.status = 'completed';
         this.error = null;
         this.endTime = Date.now();
         this.currentSpeed = 0;
-        if (this.fd !== null) {
-          try { fs.fsyncSync(this.fd); } catch {}
-        }
         this.cleanup();
         this.notify();
       } else if (this.downloadedBytes === 0 && this.status === 'downloading') {

@@ -486,16 +486,22 @@ export async function handleRequest(req, res) {
       const body = await parseJsonBody(req);
       if (!body.url) return sendJson(res, 400, { error: 'Missing url parameter' });
 
-      // Automatic high-fidelity YouTube resolution for watch/shorts links
-      if (extractYouTubeVideoId(body.url)) {
+      // Automatic high-fidelity YouTube resolution for watch/shorts links or YouTube referer
+      const probeRef = body.headers?.referer || body.headers?.Referer || '';
+      const probeYtId = extractYouTubeVideoId(body.url) || extractYouTubeVideoId(probeRef) ||
+        (body.url?.includes('googlevideo.com') ? extractYouTubeVideoId(probeRef) : null);
+      if (probeYtId) {
         try {
-          const ytRes = await resolveYouTubeFormats(body.url);
+          const probeWatchUrl = `https://www.youtube.com/watch?v=${probeYtId}`;
+          const ytRes = await resolveYouTubeFormats(probeWatchUrl);
           const topStream = ytRes.streams[0];
           if (topStream) {
             const settings = getSettings();
             const resolved = resolveCategoryFolder(topStream.filename, settings);
             return sendJson(res, 200, {
-              url: topStream.url,
+              url: probeWatchUrl,
+              watchUrl: probeWatchUrl,
+              isYouTube: true,
               resolvedMediaUrl: topStream.url,
               filename: topStream.filename,
               contentLength: topStream.contentLength,
@@ -543,17 +549,26 @@ export async function handleRequest(req, res) {
       let targetUrl = body.url;
       let targetFilename = body.filename;
 
-      // Automatic resolution if a YouTube page link is directly submitted
-      if (extractYouTubeVideoId(body.url)) {
+      // Check if this is a YouTube download
+      const refUrl = body.headers?.referer || body.headers?.Referer || '';
+      const ytId = extractYouTubeVideoId(body.watchUrl || body.url || '') ||
+        extractYouTubeVideoId(refUrl) ||
+        (body.url?.includes('googlevideo.com') ? extractYouTubeVideoId(refUrl) : null);
+
+      const isYouTube = !!ytId || !!body.isYouTube;
+      const watchUrl = ytId ? `https://www.youtube.com/watch?v=${ytId}` : (body.watchUrl || null);
+
+      if (isYouTube && watchUrl) {
         try {
-          const ytRes = await resolveYouTubeFormats(body.url);
-          const chosen = (body.itag ? ytRes.streams.find(s => String(s.itag) === String(body.itag)) : null) || ytRes.streams[0];
-          if (chosen) {
-            targetUrl = chosen.url;
-            if (!targetFilename) targetFilename = chosen.filename;
+          const ytRes = await resolveYouTubeFormats(watchUrl);
+          const chosen = (body.itag ? ytRes.streams.find(s => String(s.itag) === String(body.itag)) : null) ||
+            (body.badge ? ytRes.streams.find(s => String(s.badge).toUpperCase() === String(body.badge).toUpperCase()) : null) ||
+            ytRes.streams[0];
+          if (chosen && !targetFilename) {
+            targetFilename = chosen.filename;
           }
         } catch (ytErr) {
-          console.warn('[Turbo Download Manager] YouTube download resolution fallback:', ytErr.message);
+          console.warn('[Turbo Download Manager] YouTube format metadata notice:', ytErr.message);
         }
       }
 
@@ -587,6 +602,12 @@ export async function handleRequest(req, res) {
 
       const task = downloadManager.createDownload({
         url: targetUrl,
+        watchUrl,
+        isYouTube,
+        quality: body.quality || body.badge,
+        badge: body.badge || body.quality,
+        itag: body.itag,
+        isAudio: body.isAudio || body.type === 'audio' || String(body.badge).toUpperCase() === 'MP3',
         filename: targetFilename || body.filename,
         outputDir: downloadPath,
         interfaces,

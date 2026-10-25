@@ -19,6 +19,17 @@
   pointer-events: auto;
 }
 
+/* On YouTube, strictly hide the upper floating grabber on the video player */
+html[data-turbo-site="youtube"] .turbo-idm-bar,
+ytd-app .turbo-idm-bar,
+#movie_player .turbo-idm-bar,
+.html5-video-player .turbo-idm-bar {
+  display: none !important;
+  visibility: hidden !important;
+  pointer-events: none !important;
+  opacity: 0 !important;
+}
+
 /* The Main IDM Button - Sleek compact lightning badge */
 .turbo-idm-btn {
   display: inline-flex;

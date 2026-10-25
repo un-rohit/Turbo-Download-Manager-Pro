@@ -3,6 +3,8 @@ import path from 'node:path';
 import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { MultiInterfaceDownload } from './downloader.js';
+import { YouTubeDownloadTask } from './yt-downloader.js';
+import { extractYouTubeVideoId } from './yt-resolver.js';
 
 function resolveHistoryFile() {
   if (process.env.TURBO_DATA_DIR) {
@@ -180,7 +182,13 @@ class DownloadManager {
   }
 
   createDownload(options) {
-    const task = new MultiInterfaceDownload(options);
+    const isYt = options.isYouTube || !!extractYouTubeVideoId(options.watchUrl || options.url || '') ||
+      (options.url && options.url.includes('googlevideo.com') && !!extractYouTubeVideoId(options.headers?.referer || options.headers?.Referer || ''));
+    if (isYt && !options.watchUrl) {
+      const ytId = extractYouTubeVideoId(options.url || '') || extractYouTubeVideoId(options.headers?.referer || options.headers?.Referer || '');
+      if (ytId) options.watchUrl = `https://www.youtube.com/watch?v=${ytId}`;
+    }
+    const task = isYt ? new YouTubeDownloadTask(options) : new MultiInterfaceDownload(options);
     this.downloads.set(task.id, task);
 
     task.onUpdate((snapshot) => {

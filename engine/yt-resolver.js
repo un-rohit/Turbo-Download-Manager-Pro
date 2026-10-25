@@ -14,7 +14,7 @@ function formatBytes(bytes) {
   return `${(b / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
-function cleanTitle(title) {
+export function cleanTitle(title) {
   return String(title || 'YouTube_Video')
     .replace(/[\\/:*?"<>|]/g, '_')
     .replace(/\s+/g, ' ')
@@ -23,7 +23,7 @@ function cleanTitle(title) {
 }
 
 let cachedPythonPath = null;
-async function resolvePythonPath() {
+export async function resolvePythonPath() {
   if (cachedPythonPath) return cachedPythonPath;
   const candidates = [
     'python',
@@ -80,6 +80,7 @@ export async function resolveYouTubeFormats(watchUrl) {
   const args = [
     '-m', 'yt_dlp',
     '--js-runtimes', 'node',
+    '--remote-components', 'ejs:github',
     '-J',
     '--no-playlist',
     cleanUrl
@@ -160,6 +161,8 @@ export async function resolveYouTubeFormats(watchUrl) {
 
       candidateStreams.push({
         url: f.url,
+        watchUrl: cleanUrl,
+        isYouTube: true,
         quality: qualityLabel,
         badge,
         label: `${qualityLabel} ${ext}${isMuxed ? ' · Video + Audio' : ''}`,
@@ -182,6 +185,8 @@ export async function resolveYouTubeFormats(watchUrl) {
       const abr = Math.round(f.abr || (f.tbr) || 128);
       candidateStreams.push({
         url: f.url,
+        watchUrl: cleanUrl,
+        isYouTube: true,
         quality: 'Audio',
         badge: 'MP3',
         label: `Audio Only (${formatName} · ${abr} kbps)`,
