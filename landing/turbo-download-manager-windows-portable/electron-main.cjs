@@ -50,7 +50,9 @@ if (!gotTheLock) {
   }
 
   function createWindow() {
-    const iconPath = path.join(__dirname, 'extension', 'icons', 'icon128.png');
+    const icoPath = path.join(__dirname, 'app.ico');
+    const pngPath = path.join(__dirname, 'extension', 'icons', 'icon128.png');
+    const iconPath = fs.existsSync(icoPath) ? icoPath : pngPath;
 
     mainWindow = new BrowserWindow({
       width: 1300,

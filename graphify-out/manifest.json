@@ -1,8 +1,8 @@
 {
   "electron-main.cjs": {
-    "mtime": 1792752491.7920754,
-    "seen": 1792752585.3203337,
-    "ast_hash": "707311a795051041a5fef9b5f50d7a25",
+    "mtime": 1792953052.3404038,
+    "seen": 1792953229.337793,
+    "ast_hash": "ad6e492712d3add21fda2a25436899d9",
     "semantic_hash": ""
   },
   "engine/downloader.js": {
@@ -126,9 +126,9 @@
     "semantic_hash": ""
   },
   "landing/index.html": {
-    "mtime": 1792941387.7289226,
-    "seen": 1792941538.0832384,
-    "ast_hash": "7d3615dc0f2086516f9f8b7607b11072",
+    "mtime": 1792965224.1099951,
+    "seen": 1792965260.52988,
+    "ast_hash": "55d5fef74d2750df45c85865a1c75bae",
     "semantic_hash": ""
   },
   "public/index.html": {
@@ -138,21 +138,21 @@
     "semantic_hash": ""
   },
   "extension/icons/icon128.png": {
-    "mtime": 1792255503.0207367,
-    "seen": 1792265016.3377852,
-    "ast_hash": "187308ba3005364744b3a696a22f6810",
+    "mtime": 1792953022.6602209,
+    "seen": 1792953229.3378985,
+    "ast_hash": "91f9c1fe03d616596a59f2a1559f584b",
     "semantic_hash": ""
   },
   "extension/icons/icon16.png": {
-    "mtime": 1792255503.0163553,
-    "seen": 1792265016.3377864,
-    "ast_hash": "e4fd1fcb6c48eaf45a0991cf11525d6a",
+    "mtime": 1792953022.6572113,
+    "seen": 1792953229.3378997,
+    "ast_hash": "b9c304bc847efb50aa2771af6e71155f",
     "semantic_hash": ""
   },
   "extension/icons/icon48.png": {
-    "mtime": 1792255503.0183523,
-    "seen": 1792265016.3377874,
-    "ast_hash": "b321da04ddbfe2d095fc21f69f172725",
+    "mtime": 1792953022.6592112,
+    "seen": 1792953229.3379028,
+    "ast_hash": "6ef0295a3c0fae7bae07f04234155cf9",
     "semantic_hash": ""
   },
   "vercel.json": {
@@ -168,9 +168,9 @@
     "semantic_hash": ""
   },
   "landing/install.ps1": {
-    "mtime": 1792273960.621241,
-    "seen": 1792273966.3680065,
-    "ast_hash": "f6fcab5c39a5823357a2277d7857b92d",
+    "mtime": 1792965112.3522985,
+    "seen": 1792965260.52983,
+    "ast_hash": "b4e9e9512dc0a604dcbe8494d2d02805",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-extension/background.js": {
@@ -204,9 +204,9 @@
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/electron-main.cjs": {
-    "mtime": 1792752491.7920754,
-    "seen": 1792752585.3203673,
-    "ast_hash": "707311a795051041a5fef9b5f50d7a25",
+    "mtime": 1792953052.3404038,
+    "seen": 1792953229.3378437,
+    "ast_hash": "ad6e492712d3add21fda2a25436899d9",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/engine/downloader.js": {
@@ -324,39 +324,39 @@
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-extension/icons/icon128.png": {
-    "mtime": 1792255503.0207367,
-    "seen": 1792341143.3832092,
-    "ast_hash": "187308ba3005364744b3a696a22f6810",
+    "mtime": 1792953022.7223248,
+    "seen": 1792953229.337911,
+    "ast_hash": "91f9c1fe03d616596a59f2a1559f584b",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-extension/icons/icon16.png": {
-    "mtime": 1792255503.0163553,
-    "seen": 1792341143.3832102,
-    "ast_hash": "e4fd1fcb6c48eaf45a0991cf11525d6a",
+    "mtime": 1792953022.7191465,
+    "seen": 1792953229.337912,
+    "ast_hash": "b9c304bc847efb50aa2771af6e71155f",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-extension/icons/icon48.png": {
-    "mtime": 1792255503.0183523,
-    "seen": 1792341143.3832114,
-    "ast_hash": "b321da04ddbfe2d095fc21f69f172725",
+    "mtime": 1792953022.7213244,
+    "seen": 1792953229.3379152,
+    "ast_hash": "6ef0295a3c0fae7bae07f04234155cf9",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/extension/icons/icon128.png": {
-    "mtime": 1792255503.0207367,
-    "seen": 1792338940.4954212,
-    "ast_hash": "187308ba3005364744b3a696a22f6810",
+    "mtime": 1792953022.7521324,
+    "seen": 1792953229.3379169,
+    "ast_hash": "91f9c1fe03d616596a59f2a1559f584b",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/extension/icons/icon16.png": {
-    "mtime": 1792255503.0163553,
-    "seen": 1792338940.4954226,
-    "ast_hash": "e4fd1fcb6c48eaf45a0991cf11525d6a",
+    "mtime": 1792953022.7501266,
+    "seen": 1792953229.3379195,
+    "ast_hash": "b9c304bc847efb50aa2771af6e71155f",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/extension/icons/icon48.png": {
-    "mtime": 1792255503.0183523,
-    "seen": 1792338940.495424,
-    "ast_hash": "b321da04ddbfe2d095fc21f69f172725",
+    "mtime": 1792953022.751061,
+    "seen": 1792953229.3379228,
+    "ast_hash": "6ef0295a3c0fae7bae07f04234155cf9",
     "semantic_hash": ""
   },
   "bin/app.js": {
@@ -414,33 +414,33 @@
     "semantic_hash": ""
   },
   "landing/android-chrome-192x192.png": {
-    "mtime": 1792941269.3086522,
-    "seen": 1792941538.0832536,
-    "ast_hash": "b53731a61199b8d1a25e67b4f093d04e",
+    "mtime": 1792953022.7093856,
+    "seen": 1792953229.3379042,
+    "ast_hash": "16457cbd7e4c5db29ac554ddd9ef6003",
     "semantic_hash": ""
   },
   "landing/android-chrome-512x512.png": {
-    "mtime": 1792941269.30045,
-    "seen": 1792941538.0832548,
-    "ast_hash": "a3b4aee0042e0de184141f06c6282658",
+    "mtime": 1792953022.7181468,
+    "seen": 1792953229.3379052,
+    "ast_hash": "1bd2377683a2b266518e9af3e5e6f865",
     "semantic_hash": ""
   },
   "landing/apple-touch-icon.png": {
-    "mtime": 1792941269.3151581,
-    "seen": 1792941538.0832558,
-    "ast_hash": "7b3410cb6e52c49bb33072c09d7adfab",
+    "mtime": 1792953022.7068577,
+    "seen": 1792953229.3379061,
+    "ast_hash": "f69598e1ae19d26a2852d3c1455730b1",
     "semantic_hash": ""
   },
   "landing/favicon-16x16.png": {
-    "mtime": 1792941269.322248,
-    "seen": 1792941538.0832572,
-    "ast_hash": "fc17df2fa27fb4ef3645a43a9d34bdff",
+    "mtime": 1792953022.704625,
+    "seen": 1792953229.3379073,
+    "ast_hash": "b9c304bc847efb50aa2771af6e71155f",
     "semantic_hash": ""
   },
   "landing/favicon-32x32.png": {
-    "mtime": 1792941269.3192837,
-    "seen": 1792941538.0832582,
-    "ast_hash": "a0e6d502ac4f3e20fa0f1f97dae08173",
+    "mtime": 1792953022.704625,
+    "seen": 1792953229.3379085,
+    "ast_hash": "cda86a9f29784def36808aa8b09c57f9",
     "semantic_hash": ""
   },
   "landing/favicon.svg": {
@@ -450,33 +450,33 @@
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/public/android-chrome-192x192.png": {
-    "mtime": 1792941269.3086522,
-    "seen": 1792941538.083268,
-    "ast_hash": "b53731a61199b8d1a25e67b4f093d04e",
+    "mtime": 1792953022.7726967,
+    "seen": 1792953229.3379238,
+    "ast_hash": "16457cbd7e4c5db29ac554ddd9ef6003",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/public/android-chrome-512x512.png": {
-    "mtime": 1792941269.30045,
-    "seen": 1792941538.0832691,
-    "ast_hash": "a3b4aee0042e0de184141f06c6282658",
+    "mtime": 1792953022.7807815,
+    "seen": 1792953229.3379254,
+    "ast_hash": "1bd2377683a2b266518e9af3e5e6f865",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/public/apple-touch-icon.png": {
-    "mtime": 1792941269.3151581,
-    "seen": 1792941538.0832698,
-    "ast_hash": "7b3410cb6e52c49bb33072c09d7adfab",
+    "mtime": 1792953022.7701957,
+    "seen": 1792953229.3379264,
+    "ast_hash": "f69598e1ae19d26a2852d3c1455730b1",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/public/favicon-16x16.png": {
-    "mtime": 1792941269.322248,
-    "seen": 1792941538.0832713,
-    "ast_hash": "fc17df2fa27fb4ef3645a43a9d34bdff",
+    "mtime": 1792953022.7671957,
+    "seen": 1792953229.3379276,
+    "ast_hash": "b9c304bc847efb50aa2771af6e71155f",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/public/favicon-32x32.png": {
-    "mtime": 1792941269.3192837,
-    "seen": 1792941538.0832722,
-    "ast_hash": "a0e6d502ac4f3e20fa0f1f97dae08173",
+    "mtime": 1792953022.768138,
+    "seen": 1792953229.3379292,
+    "ast_hash": "cda86a9f29784def36808aa8b09c57f9",
     "semantic_hash": ""
   },
   "landing/turbo-download-manager-windows-portable/public/favicon.svg": {
@@ -486,39 +486,57 @@
     "semantic_hash": ""
   },
   "public/android-chrome-192x192.png": {
-    "mtime": 1792941269.3086522,
-    "seen": 1792941538.0832746,
-    "ast_hash": "b53731a61199b8d1a25e67b4f093d04e",
+    "mtime": 1792953022.6799126,
+    "seen": 1792953229.3379316,
+    "ast_hash": "16457cbd7e4c5db29ac554ddd9ef6003",
     "semantic_hash": ""
   },
   "public/android-chrome-512x512.png": {
-    "mtime": 1792941269.30045,
-    "seen": 1792941538.0832756,
-    "ast_hash": "a3b4aee0042e0de184141f06c6282658",
+    "mtime": 1792953022.6879194,
+    "seen": 1792953229.3379328,
+    "ast_hash": "1bd2377683a2b266518e9af3e5e6f865",
     "semantic_hash": ""
   },
   "public/apple-touch-icon.png": {
-    "mtime": 1792941269.3151581,
-    "seen": 1792941538.0832765,
-    "ast_hash": "7b3410cb6e52c49bb33072c09d7adfab",
+    "mtime": 1792953022.6771998,
+    "seen": 1792953229.3379338,
+    "ast_hash": "f69598e1ae19d26a2852d3c1455730b1",
     "semantic_hash": ""
   },
   "public/favicon-16x16.png": {
-    "mtime": 1792941269.322248,
-    "seen": 1792941538.0832775,
-    "ast_hash": "fc17df2fa27fb4ef3645a43a9d34bdff",
+    "mtime": 1792953022.6752052,
+    "seen": 1792953229.3379347,
+    "ast_hash": "b9c304bc847efb50aa2771af6e71155f",
     "semantic_hash": ""
   },
   "public/favicon-32x32.png": {
-    "mtime": 1792941269.3192837,
-    "seen": 1792941538.0832784,
-    "ast_hash": "a0e6d502ac4f3e20fa0f1f97dae08173",
+    "mtime": 1792953022.6762,
+    "seen": 1792953229.337936,
+    "ast_hash": "cda86a9f29784def36808aa8b09c57f9",
     "semantic_hash": ""
   },
   "public/favicon.svg": {
     "mtime": 1792941301.4260006,
     "seen": 1792941538.0832803,
     "ast_hash": "ac57471b5bcb6d2d7650abacc2e0b17e",
+    "semantic_hash": ""
+  },
+  "extension/icons/icon32.png": {
+    "mtime": 1792953022.658209,
+    "seen": 1792953229.3379018,
+    "ast_hash": "cda86a9f29784def36808aa8b09c57f9",
+    "semantic_hash": ""
+  },
+  "landing/turbo-download-manager-extension/icons/icon32.png": {
+    "mtime": 1792953022.720316,
+    "seen": 1792953229.3379135,
+    "ast_hash": "cda86a9f29784def36808aa8b09c57f9",
+    "semantic_hash": ""
+  },
+  "landing/turbo-download-manager-windows-portable/extension/icons/icon32.png": {
+    "mtime": 1792953022.750633,
+    "seen": 1792953229.3379216,
+    "ast_hash": "cda86a9f29784def36808aa8b09c57f9",
     "semantic_hash": ""
   }
 }
